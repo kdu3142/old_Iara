@@ -715,6 +715,178 @@ export default function ConfigPanel({
                 Lower values are more consistent. Use 0 for deterministic output.
               </div>
             </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Speed</div>
+              <input
+                type="number"
+                step="0.1"
+                min="0.5"
+                max="2"
+                value={config.qwenTts.speed}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextSpeed = raw === "" ? 1 : Number.parseFloat(raw);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      speed: Number.isFinite(nextSpeed) ? nextSpeed : 1,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                1.0 is default. Higher is faster, lower is slower.
+              </div>
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Top K</div>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={config.qwenTts.topK}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextTopK = raw === "" ? 0 : Number.parseInt(raw, 10);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      topK: Number.isFinite(nextTopK) ? nextTopK : 0,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Top P</div>
+              <input
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                value={config.qwenTts.topP}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextTopP = raw === "" ? 1 : Number.parseFloat(raw);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      topP: Number.isFinite(nextTopP) ? nextTopP : 1,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Repetition penalty</div>
+              <input
+                type="number"
+                step="0.05"
+                min="0.5"
+                max="2"
+                value={config.qwenTts.repetitionPenalty}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextPenalty = raw === "" ? 1 : Number.parseFloat(raw);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      repetitionPenalty: Number.isFinite(nextPenalty) ? nextPenalty : 1,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Max tokens</div>
+              <input
+                type="number"
+                step="1"
+                min="0"
+                value={config.qwenTts.maxTokens}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextMax = raw === "" ? 0 : Number.parseInt(raw, 10);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      maxTokens: Number.isFinite(nextMax) ? nextMax : 0,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                0 uses the model default.
+              </div>
+            </label>
+            <label
+              style={{
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                marginBottom: "12px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={config.qwenTts.doSample}
+                onChange={(event) =>
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      doSample: event.target.checked,
+                    },
+                  })
+                }
+              />
+              Enable sampling (do_sample)
+            </label>
             {qwenNeedsInstruct && (
               <label style={{ display: "block", marginBottom: "12px" }}>
                 <div style={{ marginBottom: "6px" }}>Instruction</div>
@@ -792,6 +964,56 @@ export default function ConfigPanel({
                     }}
                   />
                 </label>
+                <label
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
+                    marginBottom: "12px",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={config.qwenTts.xVectorOnlyMode}
+                    onChange={(event) =>
+                      onConfigChange({
+                        ...config,
+                        qwenTts: {
+                          ...config.qwenTts,
+                          xVectorOnlyMode: event.target.checked,
+                        },
+                      })
+                    }
+                  />
+                  Use x-vector only (no transcript required)
+                </label>
+                <label style={{ display: "block", marginBottom: "12px" }}>
+                  <div style={{ marginBottom: "6px" }}>
+                    STT model (auto-transcribe reference)
+                  </div>
+                  <input
+                    type="text"
+                    value={config.qwenTts.sttModel}
+                    onChange={(event) =>
+                      onConfigChange({
+                        ...config,
+                        qwenTts: { ...config.qwenTts, sttModel: event.target.value },
+                      })
+                    }
+                    placeholder="mlx-community/whisper-tiny"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                  <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                    Only used when no reference transcript is provided.
+                  </div>
+                </label>
               </>
             )}
             <label style={{ display: "block", marginBottom: "12px" }}>
@@ -826,9 +1048,11 @@ export default function ConfigPanel({
               </div>
             )}
             {qwenNeedsCloneInputs &&
-              (!config.qwenTts.refAudioPath || !config.qwenTts.refText) && (
+              (!config.qwenTts.refAudioPath ||
+                (!config.qwenTts.refText && !config.qwenTts.xVectorOnlyMode)) && (
                 <div style={{ marginTop: "6px", color: "#ffdf8a" }}>
-                  Voice cloning requires a reference audio path and transcript.
+                  Voice cloning requires reference audio. Add a transcript unless
+                  x-vector-only mode is enabled.
                 </div>
               )}
           </section>

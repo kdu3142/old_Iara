@@ -344,6 +344,11 @@ class TTSMLXIsolated(TTSService):
                     "topK": self._qwen_settings.get("topK"),
                     "topP": self._qwen_settings.get("topP"),
                     "repetitionPenalty": self._qwen_settings.get("repetitionPenalty"),
+                    "maxTokens": self._qwen_settings.get("maxTokens"),
+                    "doSample": self._qwen_settings.get("doSample"),
+                    "speed": self._qwen_settings.get("speed"),
+                    "sttModel": self._qwen_settings.get("sttModel"),
+                    "xVectorOnlyMode": self._qwen_settings.get("xVectorOnlyMode"),
                 }
             )
 
@@ -418,6 +423,11 @@ class TTSMLXIsolated(TTSService):
                     "topK": self._qwen_settings.get("topK"),
                     "topP": self._qwen_settings.get("topP"),
                     "repetitionPenalty": self._qwen_settings.get("repetitionPenalty"),
+                    "maxTokens": self._qwen_settings.get("maxTokens"),
+                    "doSample": self._qwen_settings.get("doSample"),
+                    "speed": self._qwen_settings.get("speed"),
+                    "sttModel": self._qwen_settings.get("sttModel"),
+                    "xVectorOnlyMode": self._qwen_settings.get("xVectorOnlyMode"),
                 }
             )
         loop = asyncio.get_event_loop()

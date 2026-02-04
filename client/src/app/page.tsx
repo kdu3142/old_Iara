@@ -156,6 +156,15 @@ export default function Home() {
     config.qwenTts.refAudioPath,
     config.qwenTts.refText,
     config.qwenTts.seed,
+    config.qwenTts.temperature,
+    config.qwenTts.topK,
+    config.qwenTts.topP,
+    config.qwenTts.repetitionPenalty,
+    config.qwenTts.maxTokens,
+    config.qwenTts.doSample,
+    config.qwenTts.speed,
+    config.qwenTts.sttModel,
+    config.qwenTts.xVectorOnlyMode,
   ]);
 
   useEffect(() => {

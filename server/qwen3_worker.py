@@ -16,6 +16,7 @@ import json
 import base64
 import numpy as np
 import random
+import inspect
 
 import logging
 
@@ -41,10 +42,27 @@ class Worker:
         self.ref_audio_path = ""
         self.ref_text = ""
         self.seed = None
+        self.max_tokens = None
+        self.do_sample = None
+        self.speed = None
+        self.stt_model = ""
+        self.x_vector_only_mode = None
         self.supported_speakers = None
         self.supported_languages = None
 
-    def initialize(self, model_name, mode=None, language=None, speaker=None, seed=None):
+    def initialize(
+        self,
+        model_name,
+        mode=None,
+        language=None,
+        speaker=None,
+        seed=None,
+        max_tokens=None,
+        do_sample=None,
+        speed=None,
+        stt_model=None,
+        x_vector_only_mode=None,
+    ):
         if not MLX_AVAILABLE:
             return {"error": "MLX not available"}
         try:
@@ -57,6 +75,16 @@ class Worker:
                 self.speaker = speaker
             if seed is not None:
                 self.seed = seed
+            if max_tokens is not None:
+                self.max_tokens = max_tokens
+            if do_sample is not None:
+                self.do_sample = do_sample
+            if speed is not None:
+                self.speed = speed
+            if stt_model is not None:
+                self.stt_model = stt_model
+            if x_vector_only_mode is not None:
+                self.x_vector_only_mode = x_vector_only_mode
             self.supported_speakers = (
                 self.model.get_supported_speakers()
                 if hasattr(self.model, "get_supported_speakers")
@@ -95,6 +123,16 @@ class Worker:
                 self.ref_text = value
             elif key == "seed":
                 self.seed = value
+            elif key == "maxTokens":
+                self.max_tokens = value
+            elif key == "doSample":
+                self.do_sample = value
+            elif key == "speed":
+                self.speed = value
+            elif key == "sttModel":
+                self.stt_model = value
+            elif key == "xVectorOnlyMode":
+                self.x_vector_only_mode = value
         return {"success": True}
 
     def _resolve_settings(self, req: dict):
@@ -107,6 +145,21 @@ class Worker:
         seed = req.get("seed")
         if seed is None:
             seed = self.seed
+        max_tokens = req.get("maxTokens")
+        if max_tokens is None:
+            max_tokens = self.max_tokens
+        do_sample = req.get("doSample")
+        if do_sample is None:
+            do_sample = self.do_sample
+        speed = req.get("speed")
+        if speed is None:
+            speed = self.speed
+        stt_model = req.get("sttModel")
+        if stt_model is None:
+            stt_model = self.stt_model
+        x_vector_only_mode = req.get("xVectorOnlyMode")
+        if x_vector_only_mode is None:
+            x_vector_only_mode = self.x_vector_only_mode
         temperature = req.get("temperature")
         top_k = req.get("topK")
         top_p = req.get("topP")
@@ -119,6 +172,11 @@ class Worker:
             ref_audio_path,
             ref_text,
             seed,
+            max_tokens,
+            do_sample,
+            speed,
+            stt_model,
+            x_vector_only_mode,
             temperature,
             top_k,
             top_p,
@@ -209,6 +267,114 @@ class Worker:
         rep_penalty = 1.05 if repetition_penalty is None else float(repetition_penalty)
         return temp, top_k_val, top_p_val, rep_penalty
 
+    def _normalize_optional_int(self, value):
+        if value is None:
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    def _normalize_optional_float(self, value, min_value=None):
+        if value is None:
+            return None
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        if min_value is not None and parsed < min_value:
+            return None
+        return parsed
+
+    def _normalize_optional_bool(self, value):
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        return None
+
+    def _signature_info(self, func):
+        try:
+            sig = inspect.signature(func)
+        except (TypeError, ValueError):
+            return set(), True
+        params = sig.parameters
+        accepts_kwargs = any(
+            param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values()
+        )
+        return set(params.keys()), accepts_kwargs
+
+    def _filter_kwargs(self, params, accepts_kwargs, kwargs):
+        cleaned = {key: value for key, value in kwargs.items() if value is not None}
+        if accepts_kwargs:
+            return cleaned
+        return {key: value for key, value in cleaned.items() if key in params}
+
+    def _add_language_kw(self, params, accepts_kwargs, kwargs, language, default_key):
+        if language is None:
+            return
+        if "lang_code" in params:
+            kwargs["lang_code"] = language
+        elif "language" in params:
+            kwargs["language"] = language
+        elif accepts_kwargs:
+            kwargs[default_key] = language
+
+    def _add_speaker_kw(self, params, accepts_kwargs, kwargs, speaker, default_key):
+        if not speaker:
+            return
+        if "speaker" in params:
+            kwargs["speaker"] = speaker
+        elif "voice" in params:
+            kwargs["voice"] = speaker
+        elif accepts_kwargs:
+            kwargs[default_key] = speaker
+
+    def _add_ref_audio_kw(self, params, accepts_kwargs, kwargs, ref_audio):
+        if not ref_audio:
+            return
+        if "ref_audio" in params:
+            kwargs["ref_audio"] = ref_audio
+        elif "ref_audio_path" in params:
+            kwargs["ref_audio_path"] = ref_audio
+        elif accepts_kwargs:
+            kwargs["ref_audio"] = ref_audio
+
+    def _add_ref_text_kw(self, params, accepts_kwargs, kwargs, ref_text):
+        if not ref_text:
+            return
+        if "ref_text" in params:
+            kwargs["ref_text"] = ref_text
+        elif "prompt_text" in params:
+            kwargs["prompt_text"] = ref_text
+        elif accepts_kwargs:
+            kwargs["ref_text"] = ref_text
+
+    def _add_max_tokens_kw(self, params, accepts_kwargs, kwargs, max_tokens):
+        if max_tokens is None:
+            return
+        if "max_tokens" in params:
+            kwargs["max_tokens"] = max_tokens
+        elif "max_new_tokens" in params:
+            kwargs["max_new_tokens"] = max_tokens
+        elif accepts_kwargs:
+            kwargs["max_new_tokens"] = max_tokens
+
+    def _add_kw(self, params, accepts_kwargs, kwargs, key, value):
+        if value is None:
+            return
+        if key in params or accepts_kwargs:
+            kwargs[key] = value
+
     def generate(self, req: dict):
         try:
             if not self.model:
@@ -224,6 +390,11 @@ class Worker:
                 ref_audio_path,
                 ref_text,
                 seed,
+                max_tokens,
+                do_sample,
+                speed,
+                stt_model,
+                x_vector_only_mode,
                 temperature,
                 top_k,
                 top_p,
@@ -246,49 +417,116 @@ class Worker:
                 top_p,
                 repetition_penalty,
             ) = self._resolve_sampling(temperature, top_k, top_p, repetition_penalty)
+            max_tokens = self._normalize_optional_int(max_tokens)
+            do_sample = self._normalize_optional_bool(do_sample)
+            speed = self._normalize_optional_float(speed, min_value=0.1)
+            x_vector_only_mode = self._normalize_optional_bool(x_vector_only_mode)
+            stt_model = stt_model if isinstance(stt_model, str) and stt_model.strip() else None
 
             if mode == "customVoice":
+                params, accepts_kwargs = self._signature_info(
+                    self.model.generate_custom_voice
+                )
+                kwargs = {"text": text, "instruct": instruct}
+                self._add_speaker_kw(params, accepts_kwargs, kwargs, speaker, "speaker")
+                self._add_language_kw(
+                    params, accepts_kwargs, kwargs, language, "language"
+                )
+                self._add_kw(params, accepts_kwargs, kwargs, "temperature", temperature)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_k", top_k)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_p", top_p)
+                self._add_kw(
+                    params,
+                    accepts_kwargs,
+                    kwargs,
+                    "repetition_penalty",
+                    repetition_penalty,
+                )
+                self._add_max_tokens_kw(params, accepts_kwargs, kwargs, max_tokens)
+                self._add_kw(params, accepts_kwargs, kwargs, "do_sample", do_sample)
+                self._add_kw(params, accepts_kwargs, kwargs, "speed", speed)
                 iterator = self.model.generate_custom_voice(
-                    text=text,
-                    speaker=speaker,
-                    language=language,
-                    instruct=instruct,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
+                    **self._filter_kwargs(params, accepts_kwargs, kwargs)
                 )
             elif mode == "voiceDesign":
+                params, accepts_kwargs = self._signature_info(
+                    self.model.generate_voice_design
+                )
+                kwargs = {"text": text, "instruct": instruct}
+                self._add_language_kw(
+                    params, accepts_kwargs, kwargs, language, "language"
+                )
+                self._add_kw(params, accepts_kwargs, kwargs, "temperature", temperature)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_k", top_k)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_p", top_p)
+                self._add_kw(
+                    params,
+                    accepts_kwargs,
+                    kwargs,
+                    "repetition_penalty",
+                    repetition_penalty,
+                )
+                self._add_max_tokens_kw(params, accepts_kwargs, kwargs, max_tokens)
+                self._add_kw(params, accepts_kwargs, kwargs, "do_sample", do_sample)
+                self._add_kw(params, accepts_kwargs, kwargs, "speed", speed)
                 iterator = self.model.generate_voice_design(
-                    text=text,
-                    language=language,
-                    instruct=instruct,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
+                    **self._filter_kwargs(params, accepts_kwargs, kwargs)
                 )
             elif mode == "voiceCloning":
                 ref_audio = ref_audio_path if ref_audio_path else None
+                params, accepts_kwargs = self._signature_info(self.model.generate)
+                kwargs = {"text": text}
+                self._add_ref_audio_kw(params, accepts_kwargs, kwargs, ref_audio)
+                self._add_ref_text_kw(params, accepts_kwargs, kwargs, ref_text)
+                self._add_language_kw(
+                    params, accepts_kwargs, kwargs, language, "lang_code"
+                )
+                self._add_kw(params, accepts_kwargs, kwargs, "temperature", temperature)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_k", top_k)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_p", top_p)
+                self._add_kw(
+                    params,
+                    accepts_kwargs,
+                    kwargs,
+                    "repetition_penalty",
+                    repetition_penalty,
+                )
+                self._add_max_tokens_kw(params, accepts_kwargs, kwargs, max_tokens)
+                self._add_kw(params, accepts_kwargs, kwargs, "do_sample", do_sample)
+                self._add_kw(params, accepts_kwargs, kwargs, "speed", speed)
+                self._add_kw(
+                    params,
+                    accepts_kwargs,
+                    kwargs,
+                    "x_vector_only_mode",
+                    x_vector_only_mode,
+                )
+                self._add_kw(params, accepts_kwargs, kwargs, "stt_model", stt_model)
                 iterator = self.model.generate(
-                    text=text,
-                    ref_audio=ref_audio,
-                    ref_text=ref_text,
-                    lang_code=language,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
+                    **self._filter_kwargs(params, accepts_kwargs, kwargs)
                 )
             else:
+                params, accepts_kwargs = self._signature_info(self.model.generate)
+                kwargs = {"text": text}
+                self._add_speaker_kw(params, accepts_kwargs, kwargs, speaker, "voice")
+                self._add_language_kw(
+                    params, accepts_kwargs, kwargs, language, "lang_code"
+                )
+                self._add_kw(params, accepts_kwargs, kwargs, "temperature", temperature)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_k", top_k)
+                self._add_kw(params, accepts_kwargs, kwargs, "top_p", top_p)
+                self._add_kw(
+                    params,
+                    accepts_kwargs,
+                    kwargs,
+                    "repetition_penalty",
+                    repetition_penalty,
+                )
+                self._add_max_tokens_kw(params, accepts_kwargs, kwargs, max_tokens)
+                self._add_kw(params, accepts_kwargs, kwargs, "do_sample", do_sample)
+                self._add_kw(params, accepts_kwargs, kwargs, "speed", speed)
                 iterator = self.model.generate(
-                    text=text,
-                    voice=speaker,
-                    lang_code=language,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
+                    **self._filter_kwargs(params, accepts_kwargs, kwargs)
                 )
 
             segments = []
@@ -327,6 +565,11 @@ def main():
                     language=req.get("language"),
                     speaker=req.get("speaker"),
                     seed=req.get("seed"),
+                    max_tokens=req.get("maxTokens"),
+                    do_sample=req.get("doSample"),
+                    speed=req.get("speed"),
+                    stt_model=req.get("sttModel"),
+                    x_vector_only_mode=req.get("xVectorOnlyMode"),
                 )
             elif cmd == "configure":
                 resp = worker.configure(req)

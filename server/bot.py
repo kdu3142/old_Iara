@@ -256,6 +256,11 @@ DEFAULT_CONFIG = {
         "topK": 50,
         "topP": 1.0,
         "repetitionPenalty": 1.05,
+        "maxTokens": 0,
+        "doSample": False,
+        "speed": 1.0,
+        "sttModel": "",
+        "xVectorOnlyMode": False,
     },
     "llmProvider": "openai-compatible",
     "llmBaseUrl": "http://127.0.0.1:1234/v1",
@@ -470,6 +475,42 @@ def _load_active_config() -> dict:
         if not isinstance(repetition_penalty, (int, float)):
             repetition_penalty = DEFAULT_CONFIG["qwenTts"]["repetitionPenalty"]
         config["qwenTts"]["repetitionPenalty"] = float(repetition_penalty)
+        max_tokens = config["qwenTts"].get("maxTokens")
+        if isinstance(max_tokens, bool):
+            max_tokens = int(max_tokens)
+        if not isinstance(max_tokens, int):
+            max_tokens = DEFAULT_CONFIG["qwenTts"]["maxTokens"]
+        config["qwenTts"]["maxTokens"] = max(0, max_tokens)
+        do_sample = config["qwenTts"].get("doSample")
+        if isinstance(do_sample, str):
+            normalized = do_sample.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                do_sample = True
+            elif normalized in {"false", "0", "no", "off"}:
+                do_sample = False
+        if not isinstance(do_sample, bool):
+            do_sample = DEFAULT_CONFIG["qwenTts"]["doSample"]
+        config["qwenTts"]["doSample"] = do_sample
+        speed = config["qwenTts"].get("speed")
+        if isinstance(speed, bool):
+            speed = float(speed)
+        if not isinstance(speed, (int, float)):
+            speed = DEFAULT_CONFIG["qwenTts"]["speed"]
+        config["qwenTts"]["speed"] = float(speed)
+        stt_model = config["qwenTts"].get("sttModel")
+        if not isinstance(stt_model, str):
+            stt_model = DEFAULT_CONFIG["qwenTts"]["sttModel"]
+        config["qwenTts"]["sttModel"] = stt_model
+        x_vector_only_mode = config["qwenTts"].get("xVectorOnlyMode")
+        if isinstance(x_vector_only_mode, str):
+            normalized = x_vector_only_mode.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                x_vector_only_mode = True
+            elif normalized in {"false", "0", "no", "off"}:
+                x_vector_only_mode = False
+        if not isinstance(x_vector_only_mode, bool):
+            x_vector_only_mode = DEFAULT_CONFIG["qwenTts"]["xVectorOnlyMode"]
+        config["qwenTts"]["xVectorOnlyMode"] = x_vector_only_mode
     else:
         normalized_tts_language = _normalize_tts_language(config.get("ttsLanguage"))
         if normalized_tts_language not in SUPPORTED_TTS_LANGUAGES:

@@ -20,6 +20,11 @@ export type ConfigValues = {
     topK: number;
     topP: number;
     repetitionPenalty: number;
+    maxTokens: number;
+    doSample: boolean;
+    speed: number;
+    sttModel: string;
+    xVectorOnlyMode: boolean;
   };
   llmProvider: "openai-compatible" | "ollama";
   llmBaseUrl: string;
@@ -64,6 +69,11 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
     topK: 50,
     topP: 1.0,
     repetitionPenalty: 1.05,
+    maxTokens: 0,
+    doSample: false,
+    speed: 1.0,
+    sttModel: "",
+    xVectorOnlyMode: false,
   },
   llmProvider: "openai-compatible",
   llmBaseUrl: "http://127.0.0.1:1234/v1",
@@ -73,6 +83,16 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
 };
 
 export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
+  const parseBoolean = (value: unknown, fallback: boolean) => {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "number") return value !== 0;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (["true", "1", "yes", "on"].includes(normalized)) return true;
+      if (["false", "0", "no", "off"].includes(normalized)) return false;
+    }
+    return fallback;
+  };
   const qwenValues = values.qwenTts ?? {};
   const rawTtsModel = values.ttsModel ?? DEFAULT_CONFIG_VALUES.ttsModel;
   const isLegacyQwenModel =
@@ -163,6 +183,27 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     typeof repetitionPenaltyCandidate === "number"
       ? repetitionPenaltyCandidate
       : Number.parseFloat(String(repetitionPenaltyCandidate));
+  const maxTokensCandidate =
+    qwenValues.maxTokens ?? DEFAULT_CONFIG_VALUES.qwenTts.maxTokens;
+  const maxTokens =
+    typeof maxTokensCandidate === "number"
+      ? maxTokensCandidate
+      : Number.parseInt(String(maxTokensCandidate), 10);
+  const speedCandidate = qwenValues.speed ?? DEFAULT_CONFIG_VALUES.qwenTts.speed;
+  const speed =
+    typeof speedCandidate === "number"
+      ? speedCandidate
+      : Number.parseFloat(String(speedCandidate));
+  const doSample = parseBoolean(
+    qwenValues.doSample,
+    DEFAULT_CONFIG_VALUES.qwenTts.doSample
+  );
+  const sttModel =
+    typeof qwenValues.sttModel === "string" ? qwenValues.sttModel : "";
+  const xVectorOnlyMode = parseBoolean(
+    qwenValues.xVectorOnlyMode,
+    DEFAULT_CONFIG_VALUES.qwenTts.xVectorOnlyMode
+  );
   const normalizedQwenModel = qwenModelFromMode(
     isLegacyQwenModel ? qwenModeFromModel(rawTtsModel as string) : qwenModeRaw,
     isLegacyQwenModel
@@ -201,6 +242,13 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
       repetitionPenalty: Number.isFinite(repetitionPenalty)
         ? repetitionPenalty
         : DEFAULT_CONFIG_VALUES.qwenTts.repetitionPenalty,
+      maxTokens: Number.isFinite(maxTokens)
+        ? Math.max(0, maxTokens)
+        : DEFAULT_CONFIG_VALUES.qwenTts.maxTokens,
+      doSample,
+      speed: Number.isFinite(speed) ? speed : DEFAULT_CONFIG_VALUES.qwenTts.speed,
+      sttModel,
+      xVectorOnlyMode,
     },
     llmProvider: values.llmProvider ?? DEFAULT_CONFIG_VALUES.llmProvider,
     llmBaseUrl: values.llmBaseUrl ?? DEFAULT_CONFIG_VALUES.llmBaseUrl,
