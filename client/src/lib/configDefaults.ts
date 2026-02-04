@@ -7,6 +7,20 @@ export type ConfigValues = {
   ttsLanguage: string;
   ttsVoice: string;
   ttsSentenceStreaming: boolean;
+  turnTaking: {
+    vad: {
+      confidence: number;
+      startSecs: number;
+      stopSecs: number;
+      minVolume: number;
+    };
+    smartTurn: {
+      enabled: boolean;
+      stopSecs: number;
+      preSpeechMs: number;
+      maxDurationSecs: number;
+    };
+  };
   qwenTts: {
     mode: "base" | "customVoice" | "voiceDesign" | "voiceCloning";
     model: string;
@@ -57,6 +71,20 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
   ttsLanguage: "en-US",
   ttsVoice: "af_heart",
   ttsSentenceStreaming: false,
+  turnTaking: {
+    vad: {
+      confidence: 0.7,
+      startSecs: 0.2,
+      stopSecs: 0.2,
+      minVolume: 0.6,
+    },
+    smartTurn: {
+      enabled: true,
+      stopSecs: 3,
+      preSpeechMs: 0,
+      maxDurationSecs: 8,
+    },
+  },
   qwenTts: {
     mode: "base",
     model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
@@ -95,6 +123,16 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     }
     return fallback;
   };
+  const parseNumber = (value: unknown, fallback: number) => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return fallback;
+  };
+  const clampMin = (value: number, min: number) => Math.max(min, value);
+  const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
   const qwenValues = values.qwenTts ?? {};
   const rawTtsModel = values.ttsModel ?? DEFAULT_CONFIG_VALUES.ttsModel;
   const isLegacyQwenModel =
@@ -206,6 +244,42 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     qwenValues.xVectorOnlyMode,
     DEFAULT_CONFIG_VALUES.qwenTts.xVectorOnlyMode
   );
+  const turnTaking = values.turnTaking ?? {};
+  const turnVad = turnTaking.vad ?? {};
+  const turnSmart = turnTaking.smartTurn ?? {};
+  const vadConfidence = clamp01(
+    parseNumber(turnVad.confidence, DEFAULT_CONFIG_VALUES.turnTaking.vad.confidence)
+  );
+  const vadStartSecs = clampMin(
+    parseNumber(turnVad.startSecs, DEFAULT_CONFIG_VALUES.turnTaking.vad.startSecs),
+    0
+  );
+  const vadStopSecs = clampMin(
+    parseNumber(turnVad.stopSecs, DEFAULT_CONFIG_VALUES.turnTaking.vad.stopSecs),
+    0
+  );
+  const vadMinVolume = clamp01(
+    parseNumber(turnVad.minVolume, DEFAULT_CONFIG_VALUES.turnTaking.vad.minVolume)
+  );
+  const smartEnabled = parseBoolean(
+    turnSmart.enabled,
+    DEFAULT_CONFIG_VALUES.turnTaking.smartTurn.enabled
+  );
+  const smartStopSecs = clampMin(
+    parseNumber(turnSmart.stopSecs, DEFAULT_CONFIG_VALUES.turnTaking.smartTurn.stopSecs),
+    0
+  );
+  const smartPreSpeechMs = clampMin(
+    parseNumber(turnSmart.preSpeechMs, DEFAULT_CONFIG_VALUES.turnTaking.smartTurn.preSpeechMs),
+    0
+  );
+  const smartMaxDurationSecs = clampMin(
+    parseNumber(
+      turnSmart.maxDurationSecs,
+      DEFAULT_CONFIG_VALUES.turnTaking.smartTurn.maxDurationSecs
+    ),
+    0
+  );
   const normalizedQwenModel = qwenModelFromMode(
     isLegacyQwenModel ? qwenModeFromModel(rawTtsModel as string) : qwenModeRaw,
     isLegacyQwenModel
@@ -223,6 +297,20 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     ttsVoice: values.ttsVoice ?? DEFAULT_CONFIG_VALUES.ttsVoice,
     ttsSentenceStreaming:
       values.ttsSentenceStreaming ?? DEFAULT_CONFIG_VALUES.ttsSentenceStreaming,
+    turnTaking: {
+      vad: {
+        confidence: vadConfidence,
+        startSecs: vadStartSecs,
+        stopSecs: vadStopSecs,
+        minVolume: vadMinVolume,
+      },
+      smartTurn: {
+        enabled: smartEnabled,
+        stopSecs: smartStopSecs,
+        preSpeechMs: smartPreSpeechMs,
+        maxDurationSecs: smartMaxDurationSecs,
+      },
+    },
     qwenTts: {
       mode: isLegacyQwenModel
         ? qwenModeFromModel(rawTtsModel as string)

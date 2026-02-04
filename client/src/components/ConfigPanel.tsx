@@ -63,6 +63,10 @@ export default function ConfigPanel({
   const qwenMode = config.qwenTts.mode;
   const qwenNeedsInstruct = qwenMode === "customVoice" || qwenMode === "voiceDesign";
   const qwenNeedsCloneInputs = qwenMode === "voiceCloning";
+  const turnTaking = config.turnTaking;
+  const vadSettings = turnTaking.vad;
+  const smartTurnSettings = turnTaking.smartTurn;
+  const smartTurnEnabled = smartTurnSettings.enabled;
   const pickQwenModelForMode = (
     mode: ConfigValues["qwenTts"]["mode"],
     currentModel: string
@@ -239,6 +243,324 @@ export default function ConfigPanel({
               </button>
             </label>
           </div>
+        </section>
+
+        <section
+          style={{
+            marginBottom: "24px",
+            padding: "16px",
+            borderRadius: "12px",
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "rgba(255,255,255,0.03)",
+          }}
+        >
+          <h2 style={{ fontSize: "16px", marginBottom: "8px" }}>
+            Turn Taking
+          </h2>
+          <p style={{ marginBottom: "12px", opacity: 0.7 }}>
+            Controls how the system decides the user is done speaking.
+          </p>
+          <p style={{ marginTop: "-6px", marginBottom: "12px", opacity: 0.7 }}>
+            VAD detects speech vs silence, while smart-turn uses a model to decide
+            when a thought is complete for more natural pauses.
+          </p>
+          <label
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              marginBottom: "12px",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={smartTurnEnabled}
+              onChange={(event) =>
+                onConfigChange({
+                  ...config,
+                  turnTaking: {
+                    ...config.turnTaking,
+                    smartTurn: {
+                      ...config.turnTaking.smartTurn,
+                      enabled: event.target.checked,
+                    },
+                  },
+                })
+              }
+            />
+            Enable smart-turn model
+          </label>
+          {!smartTurnEnabled && (
+            <p style={{ marginTop: "-6px", marginBottom: "12px", opacity: 0.7 }}>
+              Turns end on VAD silence only.
+            </p>
+          )}
+
+          <div style={{ marginBottom: "8px", fontSize: "13px", opacity: 0.8 }}>
+            VAD
+          </div>
+          <label style={{ display: "block", marginBottom: "12px" }}>
+            <div style={{ marginBottom: "6px" }}>Confidence</div>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={vadSettings.confidence}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const next = raw === "" ? 0 : Number.parseFloat(raw);
+                const value = Number.isFinite(next)
+                  ? Math.min(1, Math.max(0, next))
+                  : vadSettings.confidence;
+                onConfigChange({
+                  ...config,
+                  turnTaking: {
+                    ...config.turnTaking,
+                    vad: { ...config.turnTaking.vad, confidence: value },
+                  },
+                });
+              }}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.04)",
+                color: "inherit",
+              }}
+            />
+            <div style={{ marginTop: "6px", opacity: 0.7 }}>
+              Minimum VAD confidence to treat audio as speech. Higher is stricter.
+            </div>
+          </label>
+          <label style={{ display: "block", marginBottom: "12px" }}>
+            <div style={{ marginBottom: "6px" }}>Start seconds</div>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              value={vadSettings.startSecs}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const next = raw === "" ? 0 : Number.parseFloat(raw);
+                const value = Number.isFinite(next)
+                  ? Math.max(0, next)
+                  : vadSettings.startSecs;
+                onConfigChange({
+                  ...config,
+                  turnTaking: {
+                    ...config.turnTaking,
+                    vad: { ...config.turnTaking.vad, startSecs: value },
+                  },
+                });
+              }}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.04)",
+                color: "inherit",
+              }}
+            />
+            <div style={{ marginTop: "6px", opacity: 0.7 }}>
+              How long speech must persist before VAD marks the user speaking.
+            </div>
+          </label>
+          <label style={{ display: "block", marginBottom: "12px" }}>
+            <div style={{ marginBottom: "6px" }}>Stop seconds</div>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              value={vadSettings.stopSecs}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const next = raw === "" ? 0 : Number.parseFloat(raw);
+                const value = Number.isFinite(next)
+                  ? Math.max(0, next)
+                  : vadSettings.stopSecs;
+                onConfigChange({
+                  ...config,
+                  turnTaking: {
+                    ...config.turnTaking,
+                    vad: { ...config.turnTaking.vad, stopSecs: value },
+                  },
+                });
+              }}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.04)",
+                color: "inherit",
+              }}
+            />
+            <div style={{ marginTop: "6px", opacity: 0.7 }}>
+              How long silence must persist before VAD marks the user stopped.
+            </div>
+          </label>
+          <label style={{ display: "block", marginBottom: "12px" }}>
+            <div style={{ marginBottom: "6px" }}>Min volume</div>
+            <input
+              type="number"
+              step="0.05"
+              min="0"
+              max="1"
+              value={vadSettings.minVolume}
+              onChange={(event) => {
+                const raw = event.target.value.trim();
+                const next = raw === "" ? 0 : Number.parseFloat(raw);
+                const value = Number.isFinite(next)
+                  ? Math.min(1, Math.max(0, next))
+                  : vadSettings.minVolume;
+                onConfigChange({
+                  ...config,
+                  turnTaking: {
+                    ...config.turnTaking,
+                    vad: { ...config.turnTaking.vad, minVolume: value },
+                  },
+                });
+              }}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: "rgba(255,255,255,0.04)",
+                color: "inherit",
+              }}
+            />
+            <div style={{ marginTop: "6px", opacity: 0.7 }}>
+              Minimum volume threshold for speech detection. Higher ignores quiet speech.
+            </div>
+          </label>
+
+          {smartTurnEnabled && (
+            <>
+              <div
+                style={{ marginBottom: "8px", fontSize: "13px", opacity: 0.8 }}
+              >
+                Smart turn
+              </div>
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Stop seconds</div>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={smartTurnSettings.stopSecs}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim();
+                    const next = raw === "" ? 0 : Number.parseFloat(raw);
+                    const value = Number.isFinite(next)
+                      ? Math.max(0, next)
+                      : smartTurnSettings.stopSecs;
+                    onConfigChange({
+                      ...config,
+                      turnTaking: {
+                        ...config.turnTaking,
+                        smartTurn: {
+                          ...config.turnTaking.smartTurn,
+                          stopSecs: value,
+                        },
+                      },
+                    });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+                <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                  Silence fallback that forces an end-of-turn if the model hasn't decided.
+                </div>
+              </label>
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Pre-speech ms</div>
+                <input
+                  type="number"
+                  step="10"
+                  min="0"
+                  value={smartTurnSettings.preSpeechMs}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim();
+                    const next = raw === "" ? 0 : Number.parseFloat(raw);
+                    const value = Number.isFinite(next)
+                      ? Math.max(0, next)
+                      : smartTurnSettings.preSpeechMs;
+                    onConfigChange({
+                      ...config,
+                      turnTaking: {
+                        ...config.turnTaking,
+                        smartTurn: {
+                          ...config.turnTaking.smartTurn,
+                          preSpeechMs: value,
+                        },
+                      },
+                    });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+                <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                  Audio to include before speech onset when analyzing the turn.
+                </div>
+              </label>
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Max duration seconds</div>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={smartTurnSettings.maxDurationSecs}
+                  onChange={(event) => {
+                    const raw = event.target.value.trim();
+                    const next = raw === "" ? 0 : Number.parseFloat(raw);
+                    const value = Number.isFinite(next)
+                      ? Math.max(0, next)
+                      : smartTurnSettings.maxDurationSecs;
+                    onConfigChange({
+                      ...config,
+                      turnTaking: {
+                        ...config.turnTaking,
+                        smartTurn: {
+                          ...config.turnTaking.smartTurn,
+                          maxDurationSecs: value,
+                        },
+                      },
+                    });
+                  }}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+                <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                  Caps how much audio the model analyzes for a single turn.
+                </div>
+              </label>
+            </>
+          )}
+          <p style={{ marginTop: "4px", opacity: 0.7 }}>
+            Changes apply on reconnect.
+          </p>
         </section>
 
         <section
@@ -594,6 +916,11 @@ export default function ConfigPanel({
                 <option value="voiceDesign">VoiceDesign</option>
                 <option value="voiceCloning">Voice Cloning</option>
               </select>
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Chooses the Qwen TTS pipeline: Base uses preset speakers, CustomVoice
+                adds emotion prompts, VoiceDesign uses descriptive prompts, and
+                Voice Cloning uses reference audio.
+              </div>
             </label>
             <label style={{ display: "block", marginBottom: "12px" }}>
               <div style={{ marginBottom: "6px" }}>Qwen model</div>
@@ -624,6 +951,10 @@ export default function ConfigPanel({
                   </option>
                 ))}
               </select>
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Selects the specific weights and size for Qwen TTS. Changing models
+                may update the mode automatically.
+              </div>
             </label>
             <label style={{ display: "block", marginBottom: "12px" }}>
               <div style={{ marginBottom: "6px" }}>Language</div>
@@ -650,6 +981,9 @@ export default function ConfigPanel({
                   </option>
                 ))}
               </select>
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Sets text normalization and pronunciation rules for synthesis.
+              </div>
             </label>
             {(config.qwenTts.mode === "base" ||
               config.qwenTts.mode === "customVoice") && (
@@ -681,6 +1015,9 @@ export default function ConfigPanel({
                     </option>
                   ))}
                 </select>
+                <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                  Picks a preset voice timbre (available in Base/CustomVoice).
+                </div>
               </label>
             )}
             <label style={{ display: "block", marginBottom: "12px" }}>
@@ -774,6 +1111,9 @@ export default function ConfigPanel({
                   color: "inherit",
                 }}
               />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Limits sampling to the top K tokens (0 disables the limit).
+              </div>
             </label>
             <label style={{ display: "block", marginBottom: "12px" }}>
               <div style={{ marginBottom: "6px" }}>Top P</div>
@@ -803,6 +1143,9 @@ export default function ConfigPanel({
                   color: "inherit",
                 }}
               />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Nucleus sampling cutoff; 1.0 keeps the full distribution.
+              </div>
             </label>
             <label style={{ display: "block", marginBottom: "12px" }}>
               <div style={{ marginBottom: "6px" }}>Repetition penalty</div>
@@ -832,6 +1175,9 @@ export default function ConfigPanel({
                   color: "inherit",
                 }}
               />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Higher values reduce repeated tokens; 1.0 disables the penalty.
+              </div>
             </label>
             <label style={{ display: "block", marginBottom: "12px" }}>
               <div style={{ marginBottom: "6px" }}>Max tokens</div>
@@ -887,6 +1233,9 @@ export default function ConfigPanel({
               />
               Enable sampling (do_sample)
             </label>
+            <div style={{ marginTop: "-6px", marginBottom: "12px", opacity: 0.7 }}>
+              When disabled, decoding is greedy and deterministic (ignores Top K/Top P).
+            </div>
             {qwenNeedsInstruct && (
               <label style={{ display: "block", marginBottom: "12px" }}>
                 <div style={{ marginBottom: "6px" }}>Instruction</div>
@@ -913,6 +1262,9 @@ export default function ConfigPanel({
                     color: "inherit",
                   }}
                 />
+                <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                  Describes the desired voice style, emotion, or character.
+                </div>
               </label>
             )}
             {qwenNeedsCloneInputs && (
@@ -941,6 +1293,9 @@ export default function ConfigPanel({
                       color: "inherit",
                     }}
                   />
+                  <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                    Local path to a clean reference recording for cloning.
+                  </div>
                 </label>
                 <label style={{ display: "block", marginBottom: "12px" }}>
                   <div style={{ marginBottom: "6px" }}>Reference transcript</div>
@@ -963,6 +1318,9 @@ export default function ConfigPanel({
                       color: "inherit",
                     }}
                   />
+                  <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                    Exact text spoken in the reference audio.
+                  </div>
                 </label>
                 <label
                   style={{
@@ -987,6 +1345,9 @@ export default function ConfigPanel({
                   />
                   Use x-vector only (no transcript required)
                 </label>
+                <div style={{ marginTop: "-6px", marginBottom: "12px", opacity: 0.7 }}>
+                  Builds a speaker embedding without transcript alignment.
+                </div>
                 <label style={{ display: "block", marginBottom: "12px" }}>
                   <div style={{ marginBottom: "6px" }}>
                     STT model (auto-transcribe reference)
@@ -1041,6 +1402,9 @@ export default function ConfigPanel({
                   color: "inherit",
                 }}
               />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Use 0 for randomization; set a fixed value to reproduce results.
+              </div>
             </label>
             {qwenNeedsInstruct && !config.qwenTts.instruct && (
               <div style={{ marginTop: "6px", color: "#ffdf8a" }}>

@@ -244,6 +244,20 @@ DEFAULT_CONFIG = {
     "ttsLanguage": "en-US",
     "ttsVoice": "af_heart",
     "ttsSentenceStreaming": False,
+    "turnTaking": {
+        "vad": {
+            "confidence": 0.7,
+            "startSecs": 0.2,
+            "stopSecs": 0.2,
+            "minVolume": 0.6,
+        },
+        "smartTurn": {
+            "enabled": True,
+            "stopSecs": 3,
+            "preSpeechMs": 0,
+            "maxDurationSecs": 8,
+        },
+    },
     "qwenTts": {
         "mode": "base",
         "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
@@ -557,6 +571,92 @@ def _load_active_config() -> dict:
                     or DEFAULT_CONFIG["ttsVoice"]
                 )
 
+    def _parse_bool(value: object, fallback: bool) -> bool:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value != 0
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        return fallback
+
+    def _parse_number(value: object, fallback: float) -> float:
+        if isinstance(value, bool):
+            return fallback
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return fallback
+        return fallback
+
+    def _clamp_min(value: float, minimum: float) -> float:
+        return value if value >= minimum else minimum
+
+    def _clamp01(value: float) -> float:
+        return max(0.0, min(1.0, value))
+
+    turn_defaults = DEFAULT_CONFIG["turnTaking"]
+    turn_config = config.get("turnTaking") if isinstance(config.get("turnTaking"), dict) else {}
+    vad_config = turn_config.get("vad") if isinstance(turn_config.get("vad"), dict) else {}
+    smart_config = (
+        turn_config.get("smartTurn") if isinstance(turn_config.get("smartTurn"), dict) else {}
+    )
+
+    vad_confidence = _clamp01(
+        _parse_number(vad_config.get("confidence"), turn_defaults["vad"]["confidence"])
+    )
+    vad_start_secs = _clamp_min(
+        _parse_number(vad_config.get("startSecs"), turn_defaults["vad"]["startSecs"]), 0.0
+    )
+    vad_stop_secs = _clamp_min(
+        _parse_number(vad_config.get("stopSecs"), turn_defaults["vad"]["stopSecs"]), 0.0
+    )
+    vad_min_volume = _clamp01(
+        _parse_number(vad_config.get("minVolume"), turn_defaults["vad"]["minVolume"])
+    )
+
+    smart_enabled = _parse_bool(
+        smart_config.get("enabled"), turn_defaults["smartTurn"]["enabled"]
+    )
+    smart_stop_secs = _clamp_min(
+        _parse_number(smart_config.get("stopSecs"), turn_defaults["smartTurn"]["stopSecs"]), 0.0
+    )
+    smart_pre_speech_ms = _clamp_min(
+        _parse_number(
+            smart_config.get("preSpeechMs"), turn_defaults["smartTurn"]["preSpeechMs"]
+        ),
+        0.0,
+    )
+    smart_max_duration_secs = _clamp_min(
+        _parse_number(
+            smart_config.get("maxDurationSecs"),
+            turn_defaults["smartTurn"]["maxDurationSecs"],
+        ),
+        0.0,
+    )
+
+    config["turnTaking"] = {
+        "vad": {
+            "confidence": vad_confidence,
+            "startSecs": vad_start_secs,
+            "stopSecs": vad_stop_secs,
+            "minVolume": vad_min_volume,
+        },
+        "smartTurn": {
+            "enabled": smart_enabled,
+            "stopSecs": smart_stop_secs,
+            "preSpeechMs": smart_pre_speech_ms,
+            "maxDurationSecs": smart_max_duration_secs,
+        },
+    }
+
     if config["llmProvider"] not in {"openai-compatible", "ollama"}:
         config["llmProvider"] = DEFAULT_CONFIG["llmProvider"]
 
@@ -634,20 +734,54 @@ async def _warmup_models(config: dict) -> None:
 
 
 async def run_bot(webrtc_connection):
+    config = _load_active_config()
+    turn_config = config.get("turnTaking", {})
+    vad_config = turn_config.get("vad", {}) if isinstance(turn_config, dict) else {}
+    smart_config = (
+        turn_config.get("smartTurn", {}) if isinstance(turn_config, dict) else {}
+    )
+    vad_params = VADParams(
+        confidence=vad_config.get("confidence", DEFAULT_CONFIG["turnTaking"]["vad"]["confidence"]),
+        start_secs=vad_config.get("startSecs", DEFAULT_CONFIG["turnTaking"]["vad"]["startSecs"]),
+        stop_secs=vad_config.get("stopSecs", DEFAULT_CONFIG["turnTaking"]["vad"]["stopSecs"]),
+        min_volume=vad_config.get("minVolume", DEFAULT_CONFIG["turnTaking"]["vad"]["minVolume"]),
+    )
+    smart_turn_enabled = smart_config.get(
+        "enabled", DEFAULT_CONFIG["turnTaking"]["smartTurn"]["enabled"]
+    )
+    smart_turn_params = (
+        SmartTurnParams(
+            stop_secs=smart_config.get(
+                "stopSecs", DEFAULT_CONFIG["turnTaking"]["smartTurn"]["stopSecs"]
+            ),
+            pre_speech_ms=smart_config.get(
+                "preSpeechMs", DEFAULT_CONFIG["turnTaking"]["smartTurn"]["preSpeechMs"]
+            ),
+            max_duration_secs=smart_config.get(
+                "maxDurationSecs", DEFAULT_CONFIG["turnTaking"]["smartTurn"]["maxDurationSecs"]
+            ),
+        )
+        if smart_turn_enabled
+        else None
+    )
+    turn_analyzer = (
+        LocalSmartTurnAnalyzerV2(
+            smart_turn_model_path="",  # Download from HuggingFace
+            params=smart_turn_params,
+        )
+        if smart_turn_enabled
+        else None
+    )
+
     transport = SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
         params=TransportParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-            turn_analyzer=LocalSmartTurnAnalyzerV2(
-                smart_turn_model_path="",  # Download from HuggingFace
-                params=SmartTurnParams(),
-            ),
+            vad_analyzer=SileroVADAnalyzer(params=vad_params),
+            turn_analyzer=turn_analyzer,
         ),
     )
-
-    config = _load_active_config()
     stt = WhisperSTTServiceMLX(
         model=config["whisperModel"],
         language=LANGUAGE_MAP.get(config["whisperLanguage"], Language.EN),

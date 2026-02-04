@@ -26,6 +26,7 @@ const isConfigEqual = (left: ConfigValues, right: ConfigValues) =>
   left.ttsLanguage === right.ttsLanguage &&
   left.ttsVoice === right.ttsVoice &&
   left.ttsSentenceStreaming === right.ttsSentenceStreaming &&
+  JSON.stringify(left.turnTaking) === JSON.stringify(right.turnTaking) &&
   JSON.stringify(left.qwenTts) === JSON.stringify(right.qwenTts) &&
   left.llmProvider === right.llmProvider &&
   left.llmBaseUrl === right.llmBaseUrl &&
@@ -149,6 +150,14 @@ export default function Home() {
     config.ttsLanguage,
     config.ttsVoice,
     config.ttsSentenceStreaming,
+    config.turnTaking.vad.confidence,
+    config.turnTaking.vad.startSecs,
+    config.turnTaking.vad.stopSecs,
+    config.turnTaking.vad.minVolume,
+    config.turnTaking.smartTurn.enabled,
+    config.turnTaking.smartTurn.stopSecs,
+    config.turnTaking.smartTurn.preSpeechMs,
+    config.turnTaking.smartTurn.maxDurationSecs,
     config.qwenTts.mode,
     config.qwenTts.model,
     config.qwenTts.language,
