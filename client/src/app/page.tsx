@@ -3,11 +3,13 @@
 import {
   ConsoleTemplate,
   FullScreenContainer,
+  PipecatLogo,
   ThemeProvider,
 } from "@pipecat-ai/voice-ui-kit";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import ConfigPanel from "../components/ConfigPanel";
+import LatencyMetricsPortal from "../components/LatencyMetricsPanel";
 import {
   ConfigStore,
   ConfigValues,
@@ -36,6 +38,12 @@ export default function Home() {
   const [config, setConfig] = useState<ConfigValues>(DEFAULT_CONFIG_VALUES);
   const [newPresetName, setNewPresetName] = useState("");
   const [consoleKey, setConsoleKey] = useState(0);
+  const [warmupStatus, setWarmupStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle"
+  );
+  const [warmupError, setWarmupError] = useState<string | null>(null);
+  const warmupPromiseRef = useRef<Promise<boolean> | null>(null);
+  const allowConnectRef = useRef(false);
 
   useEffect(() => {
     let mounted = true;
@@ -58,6 +66,98 @@ export default function Home() {
       mounted = false;
     };
   }, []);
+
+  const runWarmup = useCallback(async () => {
+    if (warmupPromiseRef.current) {
+      return warmupPromiseRef.current;
+    }
+    setWarmupStatus("loading");
+    setWarmupError(null);
+    const promise = (async () => {
+      try {
+        const response = await fetch("/api/warmup", {
+          method: "POST",
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as {
+          status?: "idle" | "loading" | "ready" | "error";
+          error?: string | null;
+        };
+        if (payload.status === "ready") {
+          setWarmupStatus("ready");
+          setWarmupError(null);
+          return true;
+        }
+        if (payload.status === "error") {
+          setWarmupStatus("error");
+          setWarmupError(payload.error ?? "Warmup failed.");
+          return false;
+        }
+        setWarmupStatus("loading");
+        return false;
+      } catch (error) {
+        setWarmupStatus("error");
+        setWarmupError(
+          error instanceof Error ? error.message : "Warmup request failed."
+        );
+        return false;
+      }
+    })().finally(() => {
+      warmupPromiseRef.current = null;
+    });
+    warmupPromiseRef.current = promise;
+    return promise;
+  }, []);
+
+  useEffect(() => {
+    const updateConnectLabel = () => {
+      const buttons = Array.from(document.querySelectorAll("button"));
+      for (const button of buttons) {
+        if (button.textContent?.trim() === "Connect") {
+          button.textContent = "Start Chat";
+        }
+      }
+    };
+    updateConnectLabel();
+    const observer = new MutationObserver(updateConnectLabel);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    setWarmupStatus("idle");
+    setWarmupError(null);
+    allowConnectRef.current = false;
+  }, [
+    config.whisperModel,
+    config.whisperLanguage,
+    config.ttsModel,
+    config.ttsLanguage,
+    config.ttsVoice,
+  ]);
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const button = target?.closest("button");
+      if (!button) return;
+      const label = button.textContent?.trim();
+      if (label !== "Connect" && label !== "Start Chat") return;
+      if (allowConnectRef.current) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void runWarmup().then((ready) => {
+        if (ready) {
+          allowConnectRef.current = true;
+          setTimeout(() => button.click(), 0);
+        }
+      });
+    };
+    document.addEventListener("click", handleClick, true);
+    return () => {
+      document.removeEventListener("click", handleClick, true);
+    };
+  }, [runWarmup]);
 
   const saveStore = async (store: ConfigStore) => {
     const response = await fetch("/api/config", {
@@ -142,6 +242,12 @@ export default function Home() {
           connectionUrl: config.connectionUrl,
         }}
         noUserVideo={config.noUserVideo}
+        logoComponent={
+          <>
+            <PipecatLogo className="h-6 w-auto text-foreground" />
+            <LatencyMetricsPortal />
+          </>
+        }
       />
     ),
     [config, consoleKey]
@@ -214,9 +320,44 @@ export default function Home() {
               Config
             </button>
           </div>
-          <div style={{ flex: 1, minHeight: 0 }}>
+          <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
             {activeTab === "console" ? (
-              consoleContent
+              <>
+                {consoleContent}
+                {warmupStatus === "loading" && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: "16px",
+                      bottom: "16px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(0,0,0,0.35)",
+                      fontSize: "12px",
+                    }}
+                  >
+                    Preparing speech models...
+                  </div>
+                )}
+                {warmupStatus === "error" && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: "16px",
+                      bottom: "16px",
+                      padding: "8px 12px",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(0,0,0,0.35)",
+                      color: "#ffb4b4",
+                      fontSize: "12px",
+                    }}
+                  >
+                    {warmupError ?? "Warmup failed. Try again."}
+                  </div>
+                )}
+              </>
             ) : (
               <ConfigPanel
                 presets={configStore.presets}

@@ -9,7 +9,8 @@ import json
 import base64
 import sys
 import re
-from typing import AsyncGenerator, Optional, List
+import threading
+from typing import AsyncGenerator, Optional, List, Dict, Tuple, Any
 from pathlib import Path
 
 from loguru import logger
@@ -27,12 +28,14 @@ from pipecat.utils.tracing.service_decorators import traced_tts
 
 class TTSMLXIsolated(TTSService):
     """Completely isolated Kokoro TTS using subprocess to avoid Metal issues."""
+    _shared_state: Dict[Tuple[object, ...], Dict[str, Any]] = {}
 
     def __init__(
         self,
         *,
         model: str = "mlx-community/Kokoro-82M-bf16",
         voice: str = "af_heart",
+        language: Optional[str] = None,
         device: Optional[str] = None,
         sample_rate: int = 24000,
         sentence_streaming_enabled: bool = False,
@@ -47,6 +50,7 @@ class TTSMLXIsolated(TTSService):
 
         self._model_name = model
         self._voice = voice
+        self._language = language
         self._device = device
 
         self._process = None
@@ -63,8 +67,17 @@ class TTSMLXIsolated(TTSService):
         self._settings = {
             "model": model,
             "voice": voice,
+            "language": language,
             "sample_rate": sample_rate,
         }
+        self._signature = (model, voice, language, sample_rate)
+
+    def _get_shared_state(self) -> Dict[str, Any]:
+        state = self.__class__._shared_state.get(self._signature)
+        if not state:
+            state = {"process": None, "initialized": False, "lock": threading.Lock()}
+            self.__class__._shared_state[self._signature] = state
+        return state
 
     def _normalize_text(self, text: str) -> str:
         return re.sub(r"\s+", " ", text).strip()
@@ -180,6 +193,12 @@ class TTSMLXIsolated(TTSService):
     def _start_worker(self):
         """Start the worker process."""
         try:
+            state = self._get_shared_state()
+            existing = state.get("process")
+            if existing and existing.poll() is None:
+                self._process = existing
+                logger.info(f"Reusing {self._model_name} worker process: {self._process.pid}")
+                return True
             self._process = subprocess.Popen(
                 [sys.executable, self._worker_script],
                 stdin=subprocess.PIPE,
@@ -188,6 +207,8 @@ class TTSMLXIsolated(TTSService):
                 text=True,
                 bufsize=0,
             )
+            state["process"] = self._process
+            state["initialized"] = False
             logger.info(f"Started {self._model_name} worker process: {self._process.pid}")
             return True
         except Exception as e:
@@ -197,42 +218,44 @@ class TTSMLXIsolated(TTSService):
     def _send_command(self, command: dict) -> dict:
         """Send command to worker and get response."""
         try:
-            if not self._process or self._process.poll() is not None:
-                logger.debug("Starting worker process...")
-                if not self._start_worker():
-                    return {"error": "Failed to start worker"}
+            state = self._get_shared_state()
+            with state["lock"]:
+                if not self._process or self._process.poll() is not None:
+                    logger.debug("Starting worker process...")
+                    if not self._start_worker():
+                        return {"error": "Failed to start worker"}
 
-            # Send command
-            cmd_json = json.dumps(command) + "\n"
-            logger.debug(f"Sending command: {command}")
-            self._process.stdin.write(cmd_json)
-            self._process.stdin.flush()
+                # Send command
+                cmd_json = json.dumps(command) + "\n"
+                logger.debug(f"Sending command: {command}")
+                self._process.stdin.write(cmd_json)
+                self._process.stdin.flush()
 
-            # Read response with timeout
-            import select
+                # Read response with timeout
+                import select
 
-            ready, _, _ = select.select([self._process.stdout], [], [], 10.0)  # 10 second timeout
+                ready, _, _ = select.select([self._process.stdout], [], [], 10.0)  # 10 second timeout
 
-            if not ready:
-                return {"error": "Worker response timeout"}
+                if not ready:
+                    return {"error": "Worker response timeout"}
 
-            response_line = self._process.stdout.readline()
-            if not response_line:
-                # Check if process died
-                if self._process.poll() is not None:
-                    stderr_output = self._process.stderr.read() if self._process.stderr else ""
-                    return {"error": f"Worker process died. stderr: {stderr_output}"}
-                return {"error": "No response from worker"}
+                response_line = self._process.stdout.readline()
+                if not response_line:
+                    # Check if process died
+                    if self._process.poll() is not None:
+                        stderr_output = self._process.stderr.read() if self._process.stderr else ""
+                        return {"error": f"Worker process died. stderr: {stderr_output}"}
+                    return {"error": "No response from worker"}
 
-            response_data = json.loads(response_line.strip())
-            # Don't log the full response if it contains audio data (too verbose)
-            if "audio" in response_data:
-                logger.debug(
-                    f"Worker response: success with {len(response_data.get('audio', ''))} chars of audio data"
-                )
-            else:
-                logger.debug(f"Worker response: {response_line.strip()}")
-            return response_data
+                response_data = json.loads(response_line.strip())
+                # Don't log the full response if it contains audio data (too verbose)
+                if "audio" in response_data:
+                    logger.debug(
+                        f"Worker response: success with {len(response_data.get('audio', ''))} chars of audio data"
+                    )
+                else:
+                    logger.debug(f"Worker response: {response_line.strip()}")
+                return response_data
 
         except Exception as e:
             logger.error(f"Worker communication error: {e}")
@@ -247,18 +270,26 @@ class TTSMLXIsolated(TTSService):
 
     async def _initialize_if_needed(self):
         """Initialize the worker if not already done."""
-        if self._initialized:
+        state = self._get_shared_state()
+        if state.get("initialized"):
+            self._initialized = True
             return True
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
             self._send_command,
-            {"cmd": "init", "model": self._model_name, "voice": self._voice},
+            {
+                "cmd": "init",
+                "model": self._model_name,
+                "voice": self._voice,
+                "language": self._language,
+            },
         )
 
         if result.get("success"):
             self._initialized = True
+            state["initialized"] = True
             logger.info("Kokoro worker initialized")
             return True
         else:
@@ -271,6 +302,10 @@ class TTSMLXIsolated(TTSService):
                 logger.error(f"Worker process stderr: {stderr_output}")
 
             return False
+
+    async def warmup(self) -> bool:
+        """Preload the TTS worker and model."""
+        return await self._initialize_if_needed()
 
     def can_generate_metrics(self) -> bool:
         return True
@@ -305,6 +340,13 @@ class TTSMLXIsolated(TTSService):
         audio_b64 = result["audio"]
         return base64.b64decode(audio_b64)
 
+    async def warmup_generate(self, text: str = "Hello") -> bool:
+        """Warm up model by generating a short audio sample."""
+        if not await self._initialize_if_needed():
+            return False
+        await self._generate_audio_bytes(text)
+        return True
+
     @traced_tts
     async def run_tts(self, text: str) -> AsyncGenerator[Frame, None]:
         """Generate speech using isolated worker process."""
@@ -330,7 +372,7 @@ class TTSMLXIsolated(TTSService):
 
             ttfb_stopped = False
             total_segments = len(segments)
-            CHUNK_SIZE = self.chunk_size
+            CHUNK_SIZE = self.chunk_size or 0
 
             for index, segment in enumerate(segments):
                 if not segment:
@@ -340,6 +382,8 @@ class TTSMLXIsolated(TTSService):
                     await self.stop_ttfb_metrics()
                     ttfb_stopped = True
 
+                if CHUNK_SIZE <= 0:
+                    CHUNK_SIZE = len(audio_bytes) if len(audio_bytes) > 0 else 1
                 for i in range(0, len(audio_bytes), CHUNK_SIZE):
                     chunk = audio_bytes[i : i + CHUNK_SIZE]
                     if len(chunk) > 0:
@@ -360,16 +404,7 @@ class TTSMLXIsolated(TTSService):
 
     def _cleanup(self):
         """Clean up worker process."""
-        if self._process:
-            try:
-                self._process.terminate()
-                self._process.wait(timeout=5)
-            except:
-                try:
-                    self._process.kill()
-                except:
-                    pass
-            self._process = None
+        self._process = None
 
     async def __aenter__(self):
         """Async context manager entry."""

@@ -46,6 +46,10 @@ ice_servers = [
     )
 ]
 
+WARMUP_STATE = {"status": "idle", "error": None}
+WARMUP_SIGNATURE = None
+WARMUP_TASK: Optional[asyncio.Task] = None
+
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are Pipecat, a friendly, helpful chatbot.\n\n"
@@ -304,13 +308,6 @@ def _load_active_config() -> dict:
                 _default_voice_for_language(config["ttsLanguage"])
                 or DEFAULT_CONFIG["ttsVoice"]
             )
-        else:
-            expected_language = KOKORO_VOICE_LANGUAGE.get(config["ttsVoice"])
-            if expected_language and expected_language != config["ttsLanguage"]:
-                config["ttsVoice"] = (
-                    _default_voice_for_language(config["ttsLanguage"])
-                    or DEFAULT_CONFIG["ttsVoice"]
-                )
 
     if config["llmProvider"] not in {"openai-compatible", "ollama"}:
         config["llmProvider"] = DEFAULT_CONFIG["llmProvider"]
@@ -328,6 +325,44 @@ def _load_active_config() -> dict:
         config["ttsSentenceStreaming"] = DEFAULT_CONFIG["ttsSentenceStreaming"]
 
     return config
+
+
+def _warmup_signature(config: dict) -> tuple:
+    return (
+        config.get("whisperModel"),
+        config.get("whisperLanguage"),
+        config.get("ttsModel"),
+        config.get("ttsLanguage"),
+        config.get("ttsVoice"),
+    )
+
+
+async def _warmup_stt_service(stt: WhisperSTTServiceMLX) -> None:
+    # 1 second of 16-bit PCM silence at 16kHz.
+    silence = b"\x00" * (16000 * 2)
+    async for _ in stt.run_stt(silence):
+        break
+
+
+async def _warmup_models(config: dict) -> None:
+    stt = WhisperSTTServiceMLX(
+        model=config["whisperModel"],
+        language=LANGUAGE_MAP.get(config["whisperLanguage"], Language.EN),
+    )
+
+    tts_language = (
+        config.get("ttsLanguage") if config["ttsModel"].startswith("Marvis-AI") else None
+    )
+    tts = TTSMLXIsolated(
+        model=config["ttsModel"],
+        voice=config["ttsVoice"],
+        language=tts_language,
+        sample_rate=24000,
+        sentence_streaming_enabled=config["ttsSentenceStreaming"],
+    )
+
+    await asyncio.gather(_warmup_stt_service(stt), tts.warmup())
+    await tts.warmup_generate("Hello")
 
 
 async def run_bot(webrtc_connection):
@@ -350,9 +385,11 @@ async def run_bot(webrtc_connection):
         language=LANGUAGE_MAP.get(config["whisperLanguage"], Language.EN),
     )
 
+    tts_language = config.get("ttsLanguage") if config["ttsModel"].startswith("Marvis-AI") else None
     tts = TTSMLXIsolated(
         model=config["ttsModel"],
         voice=config["ttsVoice"],
+        language=tts_language,
         sample_rate=24000,
         sentence_streaming_enabled=config["ttsSentenceStreaming"],
     )
@@ -460,6 +497,37 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     pcs_map[answer["pc_id"]] = pipecat_connection
 
     return answer
+
+
+@app.post("/api/warmup")
+async def warmup_models():
+    global WARMUP_SIGNATURE, WARMUP_TASK
+
+    config = _load_active_config()
+    signature = _warmup_signature(config)
+
+    if WARMUP_STATE["status"] == "ready" and signature == WARMUP_SIGNATURE:
+        return WARMUP_STATE
+
+    if WARMUP_STATE["status"] == "loading" and WARMUP_TASK:
+        await WARMUP_TASK
+        return WARMUP_STATE
+
+    WARMUP_STATE["status"] = "loading"
+    WARMUP_STATE["error"] = None
+    WARMUP_TASK = asyncio.create_task(_warmup_models(config))
+
+    try:
+        await WARMUP_TASK
+        WARMUP_STATE["status"] = "ready"
+        WARMUP_SIGNATURE = signature
+    except Exception as exc:
+        logger.exception("Warmup failed")
+        WARMUP_STATE["status"] = "error"
+        WARMUP_STATE["error"] = str(exc)
+        WARMUP_TASK = None
+
+    return WARMUP_STATE
 
 
 @asynccontextmanager

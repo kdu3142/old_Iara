@@ -367,7 +367,9 @@ export default function ConfigPanel({
           </label>
 
           <label style={{ display: "block", marginBottom: "12px" }}>
-            <div style={{ marginBottom: "6px" }}>Language</div>
+            <div style={{ marginBottom: "6px" }}>
+              {isMarvisModel ? "Language" : "Voice language filter"}
+            </div>
             <select
               value={config.ttsLanguage}
               onChange={(event) => {
@@ -375,13 +377,14 @@ export default function ConfigPanel({
                 const voiceForLanguage = KOKORO_VOICES.find(
                   (voice) => voice.language === nextLanguage
                 );
-                const nextVoice = voiceForLanguage
-                  ? voiceForLanguage.id
-                  : config.ttsVoice;
+                const nextVoice =
+                  !isMarvisModel && voiceForLanguage
+                    ? voiceForLanguage.id
+                    : config.ttsVoice;
                 onConfigChange({
                   ...config,
                   ttsLanguage: nextLanguage,
-                  ttsVoice: isMarvisModel ? config.ttsVoice : nextVoice,
+                  ttsVoice: nextVoice,
                 });
               }}
               disabled={isMarvisModel}
