@@ -29,6 +29,7 @@ export type ConfigValues = {
   llmProvider: "openai-compatible" | "ollama";
   llmBaseUrl: string;
   llmModel: string;
+  llmOllamaThink: boolean;
   systemPrompt: string;
 };
 
@@ -78,6 +79,7 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
   llmProvider: "openai-compatible",
   llmBaseUrl: "http://127.0.0.1:1234/v1",
   llmModel: "gemma-3n-e4b-it-text",
+  llmOllamaThink: true,
   systemPrompt:
     "You are Pipecat, a friendly, helpful chatbot.\n\nYour input is text transcribed in realtime from the user's voice. There may be transcription errors. Adjust your responses automatically to account for these errors.\n\nYour output will be converted to audio so don't include special characters in your answers and do not use any markdown or special formatting.\n\nRespond to what the user said in a creative and helpful way. Keep your responses brief unless you are explicitly asked for long or detailed responses. Normally you should use one or two sentences at most. Keep each sentence short. Prefer simple sentences. Try not to use long sentences with multiple comma clauses.\n\nStart the conversation by saying, \"Hello, I'm Pipecat!\" Then stop and wait for the user.",
 };
@@ -253,6 +255,10 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     llmProvider: values.llmProvider ?? DEFAULT_CONFIG_VALUES.llmProvider,
     llmBaseUrl: values.llmBaseUrl ?? DEFAULT_CONFIG_VALUES.llmBaseUrl,
     llmModel: values.llmModel ?? DEFAULT_CONFIG_VALUES.llmModel,
+    llmOllamaThink: parseBoolean(
+      values.llmOllamaThink,
+      DEFAULT_CONFIG_VALUES.llmOllamaThink
+    ),
     systemPrompt: values.systemPrompt ?? DEFAULT_CONFIG_VALUES.systemPrompt,
   };
 }

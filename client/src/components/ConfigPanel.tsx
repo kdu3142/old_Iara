@@ -1214,6 +1214,33 @@ export default function ConfigPanel({
               </div>
             )}
           </label>
+          {ollamaEnabled && (
+            <label
+              style={{
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                marginBottom: "4px",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={config.llmOllamaThink}
+                onChange={(event) =>
+                  onConfigChange({
+                    ...config,
+                    llmOllamaThink: event.target.checked,
+                  })
+                }
+              />
+              Enable Ollama thinking
+            </label>
+          )}
+          {ollamaEnabled && (
+            <p style={{ marginTop: "0px", opacity: 0.7 }}>
+              Disable to send think: false for faster responses.
+            </p>
+          )}
         </section>
 
         <section

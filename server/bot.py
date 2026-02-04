@@ -22,6 +22,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.services.openai.base_llm import BaseOpenAILLMService
 from pipecat.services.openai.llm import OpenAILLMService
 
 from pipecat.services.whisper.stt import WhisperSTTServiceMLX, MLXModel
@@ -265,6 +266,7 @@ DEFAULT_CONFIG = {
     "llmProvider": "openai-compatible",
     "llmBaseUrl": "http://127.0.0.1:1234/v1",
     "llmModel": "gemma-3n-e4b-it-text",
+    "llmOllamaThink": True,
     "systemPrompt": DEFAULT_SYSTEM_PROMPT,
 }
 
@@ -321,6 +323,32 @@ QWEN_LANGUAGE_ALIASES = {
     "ru": "russian",
     "auto": "auto",
 }
+
+
+class LoggingOpenAILLMService(OpenAILLMService):
+    def __init__(self, *args, log_raw_chunks: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._log_raw_chunks = log_raw_chunks
+
+    async def get_chat_completions(self, context, messages):
+        chunks = await super().get_chat_completions(context, messages)
+        if not self._log_raw_chunks:
+            return chunks
+
+        async def generator():
+            async for chunk in chunks:
+                payload = None
+                try:
+                    payload = chunk.model_dump()
+                except Exception:
+                    try:
+                        payload = chunk.to_dict()
+                    except Exception:
+                        payload = str(chunk)
+                logger.debug(f"{self}: raw chunk: {payload}")
+                yield chunk
+
+        return generator()
 
 
 def _normalize_tts_language(value: object) -> str:
@@ -538,6 +566,17 @@ def _load_active_config() -> dict:
     if not isinstance(config.get("llmModel"), str) or not config["llmModel"]:
         config["llmModel"] = DEFAULT_CONFIG["llmModel"]
 
+    ollama_think = config.get("llmOllamaThink")
+    if isinstance(ollama_think, str):
+        normalized = ollama_think.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            ollama_think = True
+        elif normalized in {"false", "0", "no", "off"}:
+            ollama_think = False
+    if not isinstance(ollama_think, bool):
+        ollama_think = DEFAULT_CONFIG["llmOllamaThink"]
+    config["llmOllamaThink"] = ollama_think
+
     if not isinstance(config.get("systemPrompt"), str) or not config["systemPrompt"].strip():
         config["systemPrompt"] = DEFAULT_CONFIG["systemPrompt"]
 
@@ -631,13 +670,24 @@ async def run_bot(webrtc_connection):
         sentence_streaming_enabled=config["ttsSentenceStreaming"],
     )
 
-    llm = OpenAILLMService(
+    llm_params = None
+    if config["llmProvider"] == "ollama":
+        ollama_think = config.get("llmOllamaThink", True)
+        logger.info(f"Ollama think enabled: {ollama_think}")
+        llm_params = BaseOpenAILLMService.InputParams(
+            extra={"extra_body": {"think": ollama_think}}
+        )
+
+    llm_service = LoggingOpenAILLMService if config["llmProvider"] == "ollama" else OpenAILLMService
+    llm = llm_service(
         api_key="dummyKey",
         model=config["llmModel"],
         # model="google/gemma-3-12b",  # Medium-sized model. Uses ~8.5GB of RAM.
         # model="mlx-community/Qwen3-235B-A22B-Instruct-2507-3bit-DWQ", # Large model. Uses ~110GB of RAM!
         base_url=config["llmBaseUrl"],
         max_tokens=4096,
+        params=llm_params,
+        log_raw_chunks=config["llmProvider"] == "ollama",
     )
 
     context = OpenAILLMContext(

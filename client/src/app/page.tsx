@@ -30,6 +30,7 @@ const isConfigEqual = (left: ConfigValues, right: ConfigValues) =>
   left.llmProvider === right.llmProvider &&
   left.llmBaseUrl === right.llmBaseUrl &&
   left.llmModel === right.llmModel &&
+  left.llmOllamaThink === right.llmOllamaThink &&
   left.systemPrompt === right.systemPrompt;
 
 export default function Home() {
