@@ -6,4 +6,4 @@ mlx-lm
 pipecat-ai[openai,deepgram,rime,silero,mlx-whisper]>=0.0.80
 aiortc
 nltk
-
+espeakng_loader

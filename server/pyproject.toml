@@ -19,4 +19,5 @@ dependencies = [
     "pyobjc-framework-Quartz",
     "pyobjc-framework-Cocoa",
     "pyobjc-framework-ApplicationServices",
+    "espeakng_loader",
 ]

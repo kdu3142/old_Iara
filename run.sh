@@ -46,6 +46,7 @@ SERVER_CMD=""
 if command -v uv >/dev/null 2>&1; then
   echo "Setting up server environment with uv..."
   (cd "$ROOT_DIR/server" && uv sync --prerelease=allow)
+  (cd "$ROOT_DIR/server" && uv pip install espeakng_loader)
   SERVER_CMD="uv run bot.py"
 else
   if [[ ! -d "$ROOT_DIR/server/.venv" ]]; then
@@ -56,6 +57,7 @@ else
   echo "Installing server dependencies..."
   source "$ROOT_DIR/server/.venv/bin/activate"
   pip install -r "$ROOT_DIR/server/requirements.txt"
+  pip install espeakng_loader
   deactivate
 
   SERVER_CMD="$ROOT_DIR/server/.venv/bin/python bot.py"
@@ -69,6 +71,7 @@ fi
 echo "Installing TTS worker dependencies..."
 "$TTS_VENV/bin/pip" install --upgrade pip
 "$TTS_VENV/bin/pip" install --pre -U "mlx-audio>=0.3.1"
+"$TTS_VENV/bin/pip" install -U espeakng_loader
 export TTS_WORKER_PYTHON="$TTS_VENV/bin/python"
 export QWEN_TTS_PYTHON="$TTS_VENV/bin/python"
 

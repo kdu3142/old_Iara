@@ -19,6 +19,7 @@ import base64
 import traceback
 import inspect
 import numpy as np
+import os
 
 # Add logging to worker
 import logging
@@ -30,6 +31,30 @@ try:
     MLX_AVAILABLE = True
 except ImportError:
     MLX_AVAILABLE = False
+
+# Ensure espeak-ng data path is discoverable at runtime.
+try:
+    import espeakng_loader
+    espeak_data_path = espeakng_loader.get_data_path()
+    os.environ.setdefault("ESPEAK_DATA_PATH", espeak_data_path)
+    os.environ.setdefault("ESPEAKNG_DATA_PATH", espeak_data_path)
+    espeakng_loader.make_library_available()
+except Exception:
+    pass
+
+# Compatibility shim for phonemizer versions that don't expose EspeakWrapper.set_data_path.
+try:
+    from phonemizer.backend.espeak.wrapper import EspeakWrapper
+
+    if not hasattr(EspeakWrapper, "set_data_path"):
+        @classmethod
+        def set_data_path(cls, path):
+            cls.data_path = path
+
+        EspeakWrapper.set_data_path = set_data_path
+except Exception:
+    # If phonemizer isn't installed yet, ignore.
+    pass
 
 
 class Worker:
