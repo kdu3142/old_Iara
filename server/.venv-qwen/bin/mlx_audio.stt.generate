@@ -1,0 +1,6 @@
+#!/Users/kdu3142/Desktop/Iara/server/.venv-qwen/bin/python3.12
+import sys
+from mlx_audio.stt.generate import main
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(main())

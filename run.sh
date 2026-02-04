@@ -19,6 +19,17 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
+PYTHON_BIN="python3"
+if command -v python3.12 >/dev/null 2>&1; then
+  PYTHON_BIN="python3.12"
+fi
+
+"$PYTHON_BIN" - <<'PY'
+import sys
+if sys.version_info < (3, 12):
+    raise SystemExit("Python 3.12+ required. Install python@3.12 and retry.")
+PY
+
 if [[ ! -d "$ROOT_DIR/client/node_modules" ]]; then
   echo "Installing client dependencies..."
   (cd "$ROOT_DIR/client" && npm install)
@@ -33,23 +44,10 @@ fi
 SERVER_CMD=""
 
 if command -v uv >/dev/null 2>&1; then
-  if [[ ! -d "$ROOT_DIR/server/.venv" ]]; then
-    echo "Setting up server environment with uv..."
-    (cd "$ROOT_DIR/server" && uv sync)
-  fi
+  echo "Setting up server environment with uv..."
+  (cd "$ROOT_DIR/server" && uv sync --prerelease=allow)
   SERVER_CMD="uv run bot.py"
 else
-  PYTHON_BIN="python3"
-  if command -v python3.12 >/dev/null 2>&1; then
-    PYTHON_BIN="python3.12"
-  fi
-
-  "$PYTHON_BIN" - <<'PY'
-import sys
-if sys.version_info < (3, 12):
-    raise SystemExit("Python 3.12+ required. Install python@3.12 and retry.")
-PY
-
   if [[ ! -d "$ROOT_DIR/server/.venv" ]]; then
     echo "Creating server virtual environment..."
     (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv .venv)
@@ -62,6 +60,17 @@ PY
 
   SERVER_CMD="$ROOT_DIR/server/.venv/bin/python bot.py"
 fi
+
+TTS_VENV="$ROOT_DIR/server/.venv-qwen"
+if [[ ! -d "$TTS_VENV" ]]; then
+  echo "Creating TTS worker virtual environment..."
+  (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
+fi
+echo "Installing TTS worker dependencies..."
+"$TTS_VENV/bin/pip" install --upgrade pip
+"$TTS_VENV/bin/pip" install --pre -U "mlx-audio>=0.3.1"
+export TTS_WORKER_PYTHON="$TTS_VENV/bin/python"
+export QWEN_TTS_PYTHON="$TTS_VENV/bin/python"
 
 cleanup() {
   if [[ -n "${CLIENT_PID:-}" ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then

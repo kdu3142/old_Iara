@@ -152,6 +152,12 @@ LANGUAGE_MAP = {
 SUPPORTED_TTS_MODELS = {
     "mlx-community/Kokoro-82M-bf16",
     "Marvis-AI/marvis-tts-250m-v0.1",
+    "mlx-community/Qwen3-TTS",
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16",
 }
 
 KOKORO_VOICE_LIST = [
@@ -237,10 +243,78 @@ DEFAULT_CONFIG = {
     "ttsLanguage": "en-US",
     "ttsVoice": "af_heart",
     "ttsSentenceStreaming": False,
+    "qwenTts": {
+        "mode": "base",
+        "model": "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+        "language": "english",
+        "speaker": "Ryan",
+        "instruct": "",
+        "refAudioPath": "",
+        "refText": "",
+        "seed": 1234,
+        "temperature": 0.0,
+        "topK": 50,
+        "topP": 1.0,
+        "repetitionPenalty": 1.05,
+    },
     "llmProvider": "openai-compatible",
     "llmBaseUrl": "http://127.0.0.1:1234/v1",
     "llmModel": "gemma-3n-e4b-it-text",
     "systemPrompt": DEFAULT_SYSTEM_PROMPT,
+}
+
+QWEN_TTS_MODELS = {
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+    "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16",
+}
+
+QWEN_TTS_SENTINEL = "mlx-community/Qwen3-TTS"
+
+QWEN_TTS_LANGUAGES = {
+    "auto",
+    "english",
+    "chinese",
+    "japanese",
+    "korean",
+    "portuguese",
+    "french",
+    "german",
+    "italian",
+    "spanish",
+    "russian",
+}
+QWEN_TTS_SPEAKERS = {"Ryan", "Aiden", "Vivian", "Serena", "Uncle_Fu", "Dylan", "Eric"}
+QWEN_TTS_MODES = {"base", "customVoice", "voiceDesign", "voiceCloning"}
+
+QWEN_LANGUAGE_ALIASES = {
+    "en": "english",
+    "english": "english",
+    "pt": "portuguese",
+    "pt-br": "portuguese",
+    "pt_br": "portuguese",
+    "ptbr": "portuguese",
+    "portuguese (brazil)": "portuguese",
+    "portuguese": "portuguese",
+    "chinese": "chinese",
+    "zh": "chinese",
+    "japanese": "japanese",
+    "ja": "japanese",
+    "korean": "korean",
+    "ko": "korean",
+    "french": "french",
+    "fr": "french",
+    "german": "german",
+    "de": "german",
+    "italian": "italian",
+    "it": "italian",
+    "spanish": "spanish",
+    "es": "spanish",
+    "russian": "russian",
+    "ru": "russian",
+    "auto": "auto",
 }
 
 
@@ -259,6 +333,49 @@ def _default_voice_for_language(language: str) -> Optional[str]:
     if voices:
         return voices[0]
     return None
+
+
+def _normalize_qwen_language(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip().lower()
+    if not normalized:
+        return ""
+    return QWEN_LANGUAGE_ALIASES.get(normalized, normalized)
+
+
+def _qwen_model_size(model: str) -> str:
+    if "1.7B" in model:
+        return "1.7B"
+    if "0.6B" in model:
+        return "0.6B"
+    return ""
+
+
+def _qwen_model_mode(model: str) -> str:
+    if "VoiceDesign" in model:
+        return "voiceDesign"
+    if "CustomVoice" in model:
+        return "customVoice"
+    return "base"
+
+
+def _qwen_pick_model_for_mode(mode: str, current_model: str) -> str:
+    size = _qwen_model_size(current_model) or "0.6B"
+    if mode == "voiceDesign":
+        return "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16"
+    if mode == "customVoice":
+        return (
+            "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
+            if size == "1.7B"
+            else "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16"
+        )
+    # base + voiceCloning use base models
+    return (
+        "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"
+        if size == "1.7B"
+        else "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16"
+    )
 
 
 def _load_active_config() -> dict:
@@ -292,22 +409,84 @@ def _load_active_config() -> dict:
     if config["ttsModel"] not in SUPPORTED_TTS_MODELS:
         config["ttsModel"] = DEFAULT_CONFIG["ttsModel"]
 
-    normalized_tts_language = _normalize_tts_language(config.get("ttsLanguage"))
-    if normalized_tts_language not in SUPPORTED_TTS_LANGUAGES:
-        inferred_language = KOKORO_VOICE_LANGUAGE.get(config.get("ttsVoice", ""))
-        config["ttsLanguage"] = inferred_language or DEFAULT_CONFIG["ttsLanguage"]
-    else:
-        config["ttsLanguage"] = normalized_tts_language
-
-    if config["ttsModel"].startswith("Marvis-AI"):
-        if config["ttsVoice"] not in MARVIS_VOICES:
-            config["ttsVoice"] = None
-    else:
-        if config["ttsVoice"] not in KOKORO_VOICES:
-            config["ttsVoice"] = (
-                _default_voice_for_language(config["ttsLanguage"])
-                or DEFAULT_CONFIG["ttsVoice"]
+    is_qwen_model = config["ttsModel"].startswith("mlx-community/Qwen3-TTS")
+    if is_qwen_model:
+        qwen_config = config.get("qwenTts") if isinstance(config.get("qwenTts"), dict) else {}
+        config["qwenTts"] = DEFAULT_CONFIG["qwenTts"].copy()
+        for key in config["qwenTts"].keys():
+            if key in qwen_config:
+                config["qwenTts"][key] = qwen_config[key]
+        if config["ttsModel"].startswith("mlx-community/Qwen3-TTS-"):
+            config["qwenTts"]["model"] = config["ttsModel"]
+        config["ttsModel"] = QWEN_TTS_SENTINEL
+        if config["qwenTts"]["mode"] not in QWEN_TTS_MODES:
+            config["qwenTts"]["mode"] = DEFAULT_CONFIG["qwenTts"]["mode"]
+        if config["qwenTts"]["model"] not in QWEN_TTS_MODELS:
+            config["qwenTts"]["model"] = DEFAULT_CONFIG["qwenTts"]["model"]
+        expected_mode = _qwen_model_mode(config["qwenTts"]["model"])
+        if config["qwenTts"]["mode"] != expected_mode:
+            config["qwenTts"]["model"] = _qwen_pick_model_for_mode(
+                config["qwenTts"]["mode"], config["qwenTts"]["model"]
             )
+        normalized_qwen_language = _normalize_qwen_language(config["qwenTts"].get("language"))
+        if normalized_qwen_language not in QWEN_TTS_LANGUAGES:
+            normalized_qwen_language = DEFAULT_CONFIG["qwenTts"]["language"]
+        config["qwenTts"]["language"] = normalized_qwen_language
+        if config["qwenTts"]["speaker"] not in QWEN_TTS_SPEAKERS:
+            config["qwenTts"]["speaker"] = DEFAULT_CONFIG["qwenTts"]["speaker"]
+        if not isinstance(config["qwenTts"].get("instruct"), str):
+            config["qwenTts"]["instruct"] = ""
+        if not isinstance(config["qwenTts"].get("refAudioPath"), str):
+            config["qwenTts"]["refAudioPath"] = ""
+        if not isinstance(config["qwenTts"].get("refText"), str):
+            config["qwenTts"]["refText"] = ""
+        seed = config["qwenTts"].get("seed")
+        if isinstance(seed, bool):
+            seed = int(seed)
+        if not isinstance(seed, int):
+            seed = DEFAULT_CONFIG["qwenTts"]["seed"]
+        config["qwenTts"]["seed"] = seed
+        temperature = config["qwenTts"].get("temperature")
+        if isinstance(temperature, bool):
+            temperature = float(temperature)
+        if not isinstance(temperature, (int, float)):
+            temperature = DEFAULT_CONFIG["qwenTts"]["temperature"]
+        config["qwenTts"]["temperature"] = float(temperature)
+        top_k = config["qwenTts"].get("topK")
+        if isinstance(top_k, bool):
+            top_k = int(top_k)
+        if not isinstance(top_k, int):
+            top_k = DEFAULT_CONFIG["qwenTts"]["topK"]
+        config["qwenTts"]["topK"] = max(0, top_k)
+        top_p = config["qwenTts"].get("topP")
+        if isinstance(top_p, bool):
+            top_p = float(top_p)
+        if not isinstance(top_p, (int, float)):
+            top_p = DEFAULT_CONFIG["qwenTts"]["topP"]
+        config["qwenTts"]["topP"] = float(top_p)
+        repetition_penalty = config["qwenTts"].get("repetitionPenalty")
+        if isinstance(repetition_penalty, bool):
+            repetition_penalty = float(repetition_penalty)
+        if not isinstance(repetition_penalty, (int, float)):
+            repetition_penalty = DEFAULT_CONFIG["qwenTts"]["repetitionPenalty"]
+        config["qwenTts"]["repetitionPenalty"] = float(repetition_penalty)
+    else:
+        normalized_tts_language = _normalize_tts_language(config.get("ttsLanguage"))
+        if normalized_tts_language not in SUPPORTED_TTS_LANGUAGES:
+            inferred_language = KOKORO_VOICE_LANGUAGE.get(config.get("ttsVoice", ""))
+            config["ttsLanguage"] = inferred_language or DEFAULT_CONFIG["ttsLanguage"]
+        else:
+            config["ttsLanguage"] = normalized_tts_language
+
+        if config["ttsModel"].startswith("Marvis-AI"):
+            if config["ttsVoice"] not in MARVIS_VOICES:
+                config["ttsVoice"] = None
+        else:
+            if config["ttsVoice"] not in KOKORO_VOICES:
+                config["ttsVoice"] = (
+                    _default_voice_for_language(config["ttsLanguage"])
+                    or DEFAULT_CONFIG["ttsVoice"]
+                )
 
     if config["llmProvider"] not in {"openai-compatible", "ollama"}:
         config["llmProvider"] = DEFAULT_CONFIG["llmProvider"]
@@ -334,6 +513,7 @@ def _warmup_signature(config: dict) -> tuple:
         config.get("ttsModel"),
         config.get("ttsLanguage"),
         config.get("ttsVoice"),
+        json.dumps(config.get("qwenTts", {}), sort_keys=True),
     )
 
 
@@ -350,13 +530,21 @@ async def _warmup_models(config: dict) -> None:
         language=LANGUAGE_MAP.get(config["whisperLanguage"], Language.EN),
     )
 
+    is_qwen_model = config["ttsModel"].startswith("mlx-community/Qwen3-TTS")
     tts_language = (
         config.get("ttsLanguage") if config["ttsModel"].startswith("Marvis-AI") else None
     )
+    qwen_settings = config.get("qwenTts") if is_qwen_model else None
+    tts_model_name = (
+        config["qwenTts"]["model"]
+        if is_qwen_model and isinstance(config.get("qwenTts"), dict)
+        else config["ttsModel"]
+    )
     tts = TTSMLXIsolated(
-        model=config["ttsModel"],
-        voice=config["ttsVoice"],
+        model=tts_model_name,
+        voice=None if is_qwen_model else config["ttsVoice"],
         language=tts_language,
+        qwen_settings=qwen_settings,
         sample_rate=24000,
         sentence_streaming_enabled=config["ttsSentenceStreaming"],
     )
@@ -385,11 +573,19 @@ async def run_bot(webrtc_connection):
         language=LANGUAGE_MAP.get(config["whisperLanguage"], Language.EN),
     )
 
+    is_qwen_model = config["ttsModel"].startswith("mlx-community/Qwen3-TTS")
     tts_language = config.get("ttsLanguage") if config["ttsModel"].startswith("Marvis-AI") else None
+    qwen_settings = config.get("qwenTts") if is_qwen_model else None
+    tts_model_name = (
+        config["qwenTts"]["model"]
+        if is_qwen_model and isinstance(config.get("qwenTts"), dict)
+        else config["ttsModel"]
+    )
     tts = TTSMLXIsolated(
-        model=config["ttsModel"],
-        voice=config["ttsVoice"],
+        model=tts_model_name,
+        voice=None if is_qwen_model else config["ttsVoice"],
         language=tts_language,
+        qwen_settings=qwen_settings,
         sample_rate=24000,
         sentence_streaming_enabled=config["ttsSentenceStreaming"],
     )
@@ -499,6 +695,21 @@ async def offer(request: dict, background_tasks: BackgroundTasks):
     return answer
 
 
+async def _run_warmup(config: dict, signature: tuple) -> None:
+    global WARMUP_SIGNATURE, WARMUP_TASK
+    try:
+        await _warmup_models(config)
+        WARMUP_STATE["status"] = "ready"
+        WARMUP_STATE["error"] = None
+        WARMUP_SIGNATURE = signature
+    except Exception as exc:
+        logger.exception("Warmup failed")
+        WARMUP_STATE["status"] = "error"
+        WARMUP_STATE["error"] = str(exc)
+    finally:
+        WARMUP_TASK = None
+
+
 @app.post("/api/warmup")
 async def warmup_models():
     global WARMUP_SIGNATURE, WARMUP_TASK
@@ -509,23 +720,17 @@ async def warmup_models():
     if WARMUP_STATE["status"] == "ready" and signature == WARMUP_SIGNATURE:
         return WARMUP_STATE
 
-    if WARMUP_STATE["status"] == "loading" and WARMUP_TASK:
-        await WARMUP_TASK
-        return WARMUP_STATE
+    if WARMUP_TASK:
+        if signature != WARMUP_SIGNATURE:
+            WARMUP_TASK.cancel()
+            WARMUP_TASK = None
+        else:
+            return WARMUP_STATE
 
     WARMUP_STATE["status"] = "loading"
     WARMUP_STATE["error"] = None
-    WARMUP_TASK = asyncio.create_task(_warmup_models(config))
-
-    try:
-        await WARMUP_TASK
-        WARMUP_STATE["status"] = "ready"
-        WARMUP_SIGNATURE = signature
-    except Exception as exc:
-        logger.exception("Warmup failed")
-        WARMUP_STATE["status"] = "error"
-        WARMUP_STATE["error"] = str(exc)
-        WARMUP_TASK = None
+    WARMUP_SIGNATURE = signature
+    WARMUP_TASK = asyncio.create_task(_run_warmup(config, signature))
 
     return WARMUP_STATE
 

@@ -67,6 +67,42 @@ export const TTS_MODELS = [
     id: "Marvis-AI/marvis-tts-250m-v0.1",
     label: "Marvis 250M (MLX)",
   },
+  {
+    id: "mlx-community/Qwen3-TTS",
+    label: "Qwen3 TTS (MLX)",
+  },
+];
+
+export const QWEN_TTS_MODELS = [
+  "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+  "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16",
+  "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16",
+  "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+  "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16",
+];
+
+export const QWEN_TTS_LANGUAGES = [
+  { id: "auto", label: "Auto" },
+  { id: "english", label: "English" },
+  { id: "chinese", label: "Chinese" },
+  { id: "japanese", label: "Japanese" },
+  { id: "korean", label: "Korean" },
+  { id: "portuguese", label: "Portuguese" },
+  { id: "french", label: "French" },
+  { id: "german", label: "German" },
+  { id: "italian", label: "Italian" },
+  { id: "spanish", label: "Spanish" },
+  { id: "russian", label: "Russian" },
+];
+
+export const QWEN_TTS_SPEAKERS = [
+  { id: "Ryan", label: "Ryan (English)" },
+  { id: "Aiden", label: "Aiden (English)" },
+  { id: "Vivian", label: "Vivian (Chinese)" },
+  { id: "Serena", label: "Serena (Chinese)" },
+  { id: "Uncle_Fu", label: "Uncle_Fu (Chinese)" },
+  { id: "Dylan", label: "Dylan (Beijing Dialect)" },
+  { id: "Eric", label: "Eric (Sichuan Dialect)" },
 ];
 
 export const TTS_LANGUAGES = [

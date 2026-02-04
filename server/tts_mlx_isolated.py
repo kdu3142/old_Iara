@@ -8,8 +8,10 @@ import subprocess
 import json
 import base64
 import sys
+import os
 import re
 import threading
+import time
 from typing import AsyncGenerator, Optional, List, Dict, Tuple, Any
 from pathlib import Path
 
@@ -36,6 +38,7 @@ class TTSMLXIsolated(TTSService):
         model: str = "mlx-community/Kokoro-82M-bf16",
         voice: str = "af_heart",
         language: Optional[str] = None,
+        qwen_settings: Optional[Dict[str, Any]] = None,
         device: Optional[str] = None,
         sample_rate: int = 24000,
         sentence_streaming_enabled: bool = False,
@@ -51,6 +54,7 @@ class TTSMLXIsolated(TTSService):
         self._model_name = model
         self._voice = voice
         self._language = language
+        self._qwen_settings = qwen_settings or {}
         self._device = device
 
         self._process = None
@@ -60,6 +64,7 @@ class TTSMLXIsolated(TTSService):
         self._sentence_min_words = sentence_min_words
         self._sentence_max_chars = sentence_max_chars
         self._sentence_max_words = sentence_max_words
+        self._interrupt_id = 0
 
         # Get path to worker script
         self._worker_script = self._get_worker_script_path()
@@ -69,8 +74,15 @@ class TTSMLXIsolated(TTSService):
             "voice": voice,
             "language": language,
             "sample_rate": sample_rate,
+            "qwen_settings": self._qwen_settings,
         }
-        self._signature = (model, voice, language, sample_rate)
+        self._signature = (
+            model,
+            voice,
+            language,
+            sample_rate,
+            json.dumps(self._qwen_settings, sort_keys=True),
+        )
 
     def _get_shared_state(self) -> Dict[str, Any]:
         state = self.__class__._shared_state.get(self._signature)
@@ -177,6 +189,8 @@ class TTSMLXIsolated(TTSService):
         current_dir = Path(__file__).parent
         if self._model_name.startswith("Marvis-AI"):
             worker_path = current_dir / "marvis_worker.py"
+        elif self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+            worker_path = current_dir / "qwen3_worker.py"
         else:
             worker_path = current_dir / "kokoro_worker.py"
 
@@ -199,13 +213,28 @@ class TTSMLXIsolated(TTSService):
                 self._process = existing
                 logger.info(f"Reusing {self._model_name} worker process: {self._process.pid}")
                 return True
+            python_exec = os.environ.get("TTS_WORKER_PYTHON") or sys.executable
+            if self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+                qwen_python = os.environ.get("QWEN_TTS_PYTHON")
+                if qwen_python:
+                    python_exec = qwen_python
+                else:
+                    logger.warning(
+                        "QWEN_TTS_PYTHON not set. Using default Python for Qwen worker."
+                    )
+            env = os.environ.copy()
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            env.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+            env.setdefault("TRANSFORMERS_VERBOSITY", "error")
+            env.setdefault("TOKENIZERS_PARALLELISM", "false")
             self._process = subprocess.Popen(
-                [sys.executable, self._worker_script],
+                [python_exec, self._worker_script],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 # stderr=subprocess.PIPE,
                 text=True,
                 bufsize=0,
+                env=env,
             )
             state["process"] = self._process
             state["initialized"] = False
@@ -231,31 +260,53 @@ class TTSMLXIsolated(TTSService):
                 self._process.stdin.write(cmd_json)
                 self._process.stdin.flush()
 
-                # Read response with timeout
+                # Read response with timeout, skipping non-JSON worker output.
                 import select
 
-                ready, _, _ = select.select([self._process.stdout], [], [], 10.0)  # 10 second timeout
+                timeout = 10.0
+                if command.get("cmd") == "init" and str(command.get("model", "")).startswith(
+                    "mlx-community/Qwen3-TTS-"
+                ):
+                    timeout = 120.0
 
-                if not ready:
-                    return {"error": "Worker response timeout"}
+                deadline = time.monotonic() + timeout
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return {"error": "Worker response timeout"}
 
-                response_line = self._process.stdout.readline()
-                if not response_line:
-                    # Check if process died
-                    if self._process.poll() is not None:
-                        stderr_output = self._process.stderr.read() if self._process.stderr else ""
-                        return {"error": f"Worker process died. stderr: {stderr_output}"}
-                    return {"error": "No response from worker"}
+                    ready, _, _ = select.select([self._process.stdout], [], [], min(0.5, remaining))
+                    if not ready:
+                        continue
 
-                response_data = json.loads(response_line.strip())
-                # Don't log the full response if it contains audio data (too verbose)
-                if "audio" in response_data:
-                    logger.debug(
-                        f"Worker response: success with {len(response_data.get('audio', ''))} chars of audio data"
-                    )
-                else:
-                    logger.debug(f"Worker response: {response_line.strip()}")
-                return response_data
+                    response_line = self._process.stdout.readline()
+                    if not response_line:
+                        # Check if process died
+                        if self._process.poll() is not None:
+                            stderr_output = (
+                                self._process.stderr.read() if self._process.stderr else ""
+                            )
+                            return {"error": f"Worker process died. stderr: {stderr_output}"}
+                        return {"error": "No response from worker"}
+
+                    response_text = response_line.strip()
+                    if not response_text:
+                        continue
+
+                    try:
+                        response_data = json.loads(response_text)
+                    except json.JSONDecodeError:
+                        logger.debug(f"Ignoring non-JSON worker output: {response_text}")
+                        continue
+
+                    # Don't log the full response if it contains audio data (too verbose)
+                    if "audio" in response_data:
+                        logger.debug(
+                            f"Worker response: success with {len(response_data.get('audio', ''))} chars of audio data"
+                        )
+                    else:
+                        logger.debug(f"Worker response: {response_text}")
+                    return response_data
 
         except Exception as e:
             logger.error(f"Worker communication error: {e}")
@@ -275,16 +326,32 @@ class TTSMLXIsolated(TTSService):
             self._initialized = True
             return True
 
+        init_payload = {
+            "cmd": "init",
+            "model": self._model_name,
+            "voice": self._voice,
+            "language": self._language,
+        }
+        if self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+            init_payload.update(
+                {
+                    "voice": None,
+                    "language": self._qwen_settings.get("language"),
+                    "mode": self._qwen_settings.get("mode"),
+                    "speaker": self._qwen_settings.get("speaker"),
+                    "seed": self._qwen_settings.get("seed"),
+                    "temperature": self._qwen_settings.get("temperature"),
+                    "topK": self._qwen_settings.get("topK"),
+                    "topP": self._qwen_settings.get("topP"),
+                    "repetitionPenalty": self._qwen_settings.get("repetitionPenalty"),
+                }
+            )
+
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None,
             self._send_command,
-            {
-                "cmd": "init",
-                "model": self._model_name,
-                "voice": self._voice,
-                "language": self._language,
-            },
+            init_payload,
         )
 
         if result.get("success"):
@@ -302,6 +369,11 @@ class TTSMLXIsolated(TTSService):
                 logger.error(f"Worker process stderr: {stderr_output}")
 
             return False
+
+    async def _handle_interruption(self, frame, direction):
+        await super()._handle_interruption(frame, direction)
+        # Increment interrupt id so any in-flight generation is dropped.
+        self._interrupt_id += 1
 
     async def warmup(self) -> bool:
         """Preload the TTS worker and model."""
@@ -331,9 +403,26 @@ class TTSMLXIsolated(TTSService):
             pass
 
     async def _generate_audio_bytes(self, text: str) -> bytes:
+        payload = {"cmd": "generate", "text": text}
+        if self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+            payload.update(
+                {
+                    "mode": self._qwen_settings.get("mode"),
+                    "language": self._qwen_settings.get("language"),
+                    "speaker": self._qwen_settings.get("speaker"),
+                    "instruct": self._qwen_settings.get("instruct"),
+                    "refAudioPath": self._qwen_settings.get("refAudioPath"),
+                    "refText": self._qwen_settings.get("refText"),
+                    "seed": self._qwen_settings.get("seed"),
+                    "temperature": self._qwen_settings.get("temperature"),
+                    "topK": self._qwen_settings.get("topK"),
+                    "topP": self._qwen_settings.get("topP"),
+                    "repetitionPenalty": self._qwen_settings.get("repetitionPenalty"),
+                }
+            )
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
-            None, self._send_command, {"cmd": "generate", "text": text}
+            None, self._send_command, payload
         )
         if not result.get("success"):
             raise RuntimeError(f"Audio generation failed: {result.get('error')}")
@@ -351,6 +440,7 @@ class TTSMLXIsolated(TTSService):
     async def run_tts(self, text: str) -> AsyncGenerator[Frame, None]:
         """Generate speech using isolated worker process."""
         logger.debug(f"{self}: Generating TTS [{text}]")
+        start_interrupt_id = self._interrupt_id
 
         try:
             await self.start_ttfb_metrics()
@@ -361,6 +451,8 @@ class TTSMLXIsolated(TTSService):
             # Initialize worker if needed
             if not await self._initialize_if_needed():
                 raise RuntimeError("Failed to initialize Kokoro worker")
+            if self._interrupt_id != start_interrupt_id:
+                return
 
             segments = (
                 self._split_text_for_tts(text)
@@ -377,7 +469,11 @@ class TTSMLXIsolated(TTSService):
             for index, segment in enumerate(segments):
                 if not segment:
                     continue
+                if self._interrupt_id != start_interrupt_id:
+                    return
                 audio_bytes = await self._generate_audio_bytes(segment)
+                if self._interrupt_id != start_interrupt_id:
+                    return
                 if not ttfb_stopped:
                     await self.stop_ttfb_metrics()
                     ttfb_stopped = True
@@ -385,6 +481,8 @@ class TTSMLXIsolated(TTSService):
                 if CHUNK_SIZE <= 0:
                     CHUNK_SIZE = len(audio_bytes) if len(audio_bytes) > 0 else 1
                 for i in range(0, len(audio_bytes), CHUNK_SIZE):
+                    if self._interrupt_id != start_interrupt_id:
+                        return
                     chunk = audio_bytes[i : i + CHUNK_SIZE]
                     if len(chunk) > 0:
                         frame = TTSAudioRawFrame(chunk, self.sample_rate, 1)
@@ -394,6 +492,8 @@ class TTSMLXIsolated(TTSService):
                         yield frame
                         await asyncio.sleep(0.001)
 
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Error in run_tts: {e}")
             yield ErrorFrame(error=str(e))

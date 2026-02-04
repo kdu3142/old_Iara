@@ -25,6 +25,8 @@ const isConfigEqual = (left: ConfigValues, right: ConfigValues) =>
   left.ttsModel === right.ttsModel &&
   left.ttsLanguage === right.ttsLanguage &&
   left.ttsVoice === right.ttsVoice &&
+  left.ttsSentenceStreaming === right.ttsSentenceStreaming &&
+  JSON.stringify(left.qwenTts) === JSON.stringify(right.qwenTts) &&
   left.llmProvider === right.llmProvider &&
   left.llmBaseUrl === right.llmBaseUrl &&
   left.llmModel === right.llmModel &&
@@ -74,34 +76,45 @@ export default function Home() {
     setWarmupStatus("loading");
     setWarmupError(null);
     const promise = (async () => {
-      try {
-        const response = await fetch("/api/warmup", {
-          method: "POST",
-          cache: "no-store",
-        });
-        const payload = (await response.json()) as {
-          status?: "idle" | "loading" | "ready" | "error";
-          error?: string | null;
-        };
-        if (payload.status === "ready") {
-          setWarmupStatus("ready");
-          setWarmupError(null);
-          return true;
+      const start = Date.now();
+      const maxWaitMs = 10 * 60 * 1000;
+      const pollIntervalMs = 2000;
+      while (Date.now() - start < maxWaitMs) {
+        try {
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+          const response = await fetch("/api/warmup", {
+            method: "POST",
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          const payload = (await response.json()) as {
+            status?: "idle" | "loading" | "ready" | "error";
+            error?: string | null;
+          };
+          if (payload.status === "ready") {
+            setWarmupStatus("ready");
+            setWarmupError(null);
+            return true;
+          }
+          if (payload.status === "error") {
+            setWarmupStatus("error");
+            setWarmupError(payload.error ?? "Warmup failed.");
+            return false;
+          }
+          setWarmupStatus("loading");
+        } catch (error) {
+          setWarmupStatus("loading");
+          setWarmupError(
+            error instanceof Error ? `${error.message}. Retrying...` : "Warmup request failed. Retrying..."
+          );
         }
-        if (payload.status === "error") {
-          setWarmupStatus("error");
-          setWarmupError(payload.error ?? "Warmup failed.");
-          return false;
-        }
-        setWarmupStatus("loading");
-        return false;
-      } catch (error) {
-        setWarmupStatus("error");
-        setWarmupError(
-          error instanceof Error ? error.message : "Warmup request failed."
-        );
-        return false;
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
       }
+      setWarmupStatus("error");
+      setWarmupError("Warmup timed out. Try again.");
+      return false;
     })().finally(() => {
       warmupPromiseRef.current = null;
     });
@@ -134,6 +147,15 @@ export default function Home() {
     config.ttsModel,
     config.ttsLanguage,
     config.ttsVoice,
+    config.ttsSentenceStreaming,
+    config.qwenTts.mode,
+    config.qwenTts.model,
+    config.qwenTts.language,
+    config.qwenTts.speaker,
+    config.qwenTts.instruct,
+    config.qwenTts.refAudioPath,
+    config.qwenTts.refText,
+    config.qwenTts.seed,
   ]);
 
   useEffect(() => {

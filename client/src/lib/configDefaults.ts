@@ -7,6 +7,20 @@ export type ConfigValues = {
   ttsLanguage: string;
   ttsVoice: string;
   ttsSentenceStreaming: boolean;
+  qwenTts: {
+    mode: "base" | "customVoice" | "voiceDesign" | "voiceCloning";
+    model: string;
+    language: string;
+    speaker: string;
+    instruct: string;
+    refAudioPath: string;
+    refText: string;
+    seed: number;
+    temperature: number;
+    topK: number;
+    topP: number;
+    repetitionPenalty: number;
+  };
   llmProvider: "openai-compatible" | "ollama";
   llmBaseUrl: string;
   llmModel: string;
@@ -37,6 +51,20 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
   ttsLanguage: "en-US",
   ttsVoice: "af_heart",
   ttsSentenceStreaming: false,
+  qwenTts: {
+    mode: "base",
+    model: "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16",
+    language: "english",
+    speaker: "Ryan",
+    instruct: "",
+    refAudioPath: "",
+    refText: "",
+    seed: 1234,
+    temperature: 0.0,
+    topK: 50,
+    topP: 1.0,
+    repetitionPenalty: 1.05,
+  },
   llmProvider: "openai-compatible",
   llmBaseUrl: "http://127.0.0.1:1234/v1",
   llmModel: "gemma-3n-e4b-it-text",
@@ -45,16 +73,135 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
 };
 
 export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
+  const qwenValues = values.qwenTts ?? {};
+  const rawTtsModel = values.ttsModel ?? DEFAULT_CONFIG_VALUES.ttsModel;
+  const isLegacyQwenModel =
+    typeof rawTtsModel === "string" && rawTtsModel.startsWith("mlx-community/Qwen3-TTS-");
+  const normalizedTtsModel = isLegacyQwenModel
+    ? "mlx-community/Qwen3-TTS"
+    : rawTtsModel;
+  const qwenModeRaw = qwenValues.mode ?? DEFAULT_CONFIG_VALUES.qwenTts.mode;
+  const qwenModelFromMode = (mode: ConfigValues["qwenTts"]["mode"], model: string) => {
+    const size = model.includes("1.7B") ? "1.7B" : "0.6B";
+    if (mode === "voiceDesign") {
+      return "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16";
+    }
+    if (mode === "customVoice") {
+      return size === "1.7B"
+        ? "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
+        : "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16";
+    }
+    return size === "1.7B"
+      ? "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"
+      : "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16";
+  };
+  const qwenModeFromModel = (model: string): ConfigValues["qwenTts"]["mode"] => {
+    if (model.includes("VoiceDesign")) return "voiceDesign";
+    if (model.includes("CustomVoice")) return "customVoice";
+    return "base";
+  };
+  const rawQwenLanguage =
+    typeof qwenValues.language === "string" ? qwenValues.language : "";
+  const qwenLanguageNormalized = rawQwenLanguage
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const qwenLanguageAliases: Record<string, string> = {
+    en: "english",
+    english: "english",
+    pt: "portuguese",
+    "pt-br": "portuguese",
+    pt_br: "portuguese",
+    ptbr: "portuguese",
+    "portuguese (brazil)": "portuguese",
+    portuguese: "portuguese",
+    chinese: "chinese",
+    zh: "chinese",
+    japanese: "japanese",
+    ja: "japanese",
+    korean: "korean",
+    ko: "korean",
+    french: "french",
+    fr: "french",
+    german: "german",
+    de: "german",
+    italian: "italian",
+    it: "italian",
+    spanish: "spanish",
+    es: "spanish",
+    russian: "russian",
+    ru: "russian",
+    auto: "auto",
+  };
+  const normalizedQwenLanguage =
+    qwenLanguageAliases[qwenLanguageNormalized] ?? qwenLanguageNormalized;
+  const seedCandidate = qwenValues.seed ?? DEFAULT_CONFIG_VALUES.qwenTts.seed;
+  const seed =
+    typeof seedCandidate === "number"
+      ? seedCandidate
+      : Number.parseInt(String(seedCandidate), 10);
+  const temperatureCandidate =
+    qwenValues.temperature ?? DEFAULT_CONFIG_VALUES.qwenTts.temperature;
+  const temperature =
+    typeof temperatureCandidate === "number"
+      ? temperatureCandidate
+      : Number.parseFloat(String(temperatureCandidate));
+  const topKCandidate = qwenValues.topK ?? DEFAULT_CONFIG_VALUES.qwenTts.topK;
+  const topK =
+    typeof topKCandidate === "number"
+      ? topKCandidate
+      : Number.parseInt(String(topKCandidate), 10);
+  const topPCandidate = qwenValues.topP ?? DEFAULT_CONFIG_VALUES.qwenTts.topP;
+  const topP =
+    typeof topPCandidate === "number"
+      ? topPCandidate
+      : Number.parseFloat(String(topPCandidate));
+  const repetitionPenaltyCandidate =
+    qwenValues.repetitionPenalty ??
+    DEFAULT_CONFIG_VALUES.qwenTts.repetitionPenalty;
+  const repetitionPenalty =
+    typeof repetitionPenaltyCandidate === "number"
+      ? repetitionPenaltyCandidate
+      : Number.parseFloat(String(repetitionPenaltyCandidate));
+  const normalizedQwenModel = qwenModelFromMode(
+    isLegacyQwenModel ? qwenModeFromModel(rawTtsModel as string) : qwenModeRaw,
+    isLegacyQwenModel
+      ? (rawTtsModel as string)
+      : qwenValues.model ?? DEFAULT_CONFIG_VALUES.qwenTts.model
+  );
+
   return {
     connectionUrl: values.connectionUrl ?? DEFAULT_CONFIG_VALUES.connectionUrl,
     noUserVideo: values.noUserVideo ?? DEFAULT_CONFIG_VALUES.noUserVideo,
     whisperModel: values.whisperModel ?? DEFAULT_CONFIG_VALUES.whisperModel,
     whisperLanguage: values.whisperLanguage ?? DEFAULT_CONFIG_VALUES.whisperLanguage,
-    ttsModel: values.ttsModel ?? DEFAULT_CONFIG_VALUES.ttsModel,
+    ttsModel: normalizedTtsModel ?? DEFAULT_CONFIG_VALUES.ttsModel,
     ttsLanguage: values.ttsLanguage ?? DEFAULT_CONFIG_VALUES.ttsLanguage,
     ttsVoice: values.ttsVoice ?? DEFAULT_CONFIG_VALUES.ttsVoice,
     ttsSentenceStreaming:
       values.ttsSentenceStreaming ?? DEFAULT_CONFIG_VALUES.ttsSentenceStreaming,
+    qwenTts: {
+      mode: isLegacyQwenModel
+        ? qwenModeFromModel(rawTtsModel as string)
+        : qwenModeRaw,
+      model: normalizedQwenModel,
+      language:
+        normalizedQwenLanguage || DEFAULT_CONFIG_VALUES.qwenTts.language,
+      speaker: qwenValues.speaker ?? DEFAULT_CONFIG_VALUES.qwenTts.speaker,
+      instruct: qwenValues.instruct ?? DEFAULT_CONFIG_VALUES.qwenTts.instruct,
+      refAudioPath:
+        qwenValues.refAudioPath ?? DEFAULT_CONFIG_VALUES.qwenTts.refAudioPath,
+      refText: qwenValues.refText ?? DEFAULT_CONFIG_VALUES.qwenTts.refText,
+      seed: Number.isFinite(seed) ? seed : DEFAULT_CONFIG_VALUES.qwenTts.seed,
+      temperature: Number.isFinite(temperature)
+        ? temperature
+        : DEFAULT_CONFIG_VALUES.qwenTts.temperature,
+      topK: Number.isFinite(topK) ? topK : DEFAULT_CONFIG_VALUES.qwenTts.topK,
+      topP: Number.isFinite(topP) ? topP : DEFAULT_CONFIG_VALUES.qwenTts.topP,
+      repetitionPenalty: Number.isFinite(repetitionPenalty)
+        ? repetitionPenalty
+        : DEFAULT_CONFIG_VALUES.qwenTts.repetitionPenalty,
+    },
     llmProvider: values.llmProvider ?? DEFAULT_CONFIG_VALUES.llmProvider,
     llmBaseUrl: values.llmBaseUrl ?? DEFAULT_CONFIG_VALUES.llmBaseUrl,
     llmModel: values.llmModel ?? DEFAULT_CONFIG_VALUES.llmModel,

@@ -4,6 +4,9 @@ import {
   KOKORO_VOICES,
   MARVIS_DEFAULT_VOICE,
   LLM_PROVIDERS,
+  QWEN_TTS_LANGUAGES,
+  QWEN_TTS_MODELS,
+  QWEN_TTS_SPEAKERS,
   TTS_LANGUAGES,
   TTS_MODELS,
   WHISPER_LANGUAGES,
@@ -41,6 +44,8 @@ export default function ConfigPanel({
 }: ConfigPanelProps) {
   const activePresetLabel = activePresetName || "Preset";
   const isMarvisModel = config.ttsModel.startsWith("Marvis-AI");
+  const isQwenModel = config.ttsModel.startsWith("mlx-community/Qwen3-TTS");
+  const isKokoroModel = !isMarvisModel && !isQwenModel;
   const voicesForLanguage = KOKORO_VOICES.filter(
     (voice) => voice.language === config.ttsLanguage
   );
@@ -55,6 +60,31 @@ export default function ConfigPanel({
     "idle" | "loading" | "error"
   >("idle");
   const ollamaEnabled = config.llmProvider === "ollama";
+  const qwenMode = config.qwenTts.mode;
+  const qwenNeedsInstruct = qwenMode === "customVoice" || qwenMode === "voiceDesign";
+  const qwenNeedsCloneInputs = qwenMode === "voiceCloning";
+  const pickQwenModelForMode = (
+    mode: ConfigValues["qwenTts"]["mode"],
+    currentModel: string
+  ) => {
+    const size = currentModel.includes("1.7B") ? "1.7B" : "0.6B";
+    if (mode === "voiceDesign") {
+      return "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-bf16";
+    }
+    if (mode === "customVoice") {
+      return size === "1.7B"
+        ? "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16"
+        : "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-bf16";
+    }
+    return size === "1.7B"
+      ? "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-bf16"
+      : "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-bf16";
+  };
+  const modeFromQwenModel = (model: string): ConfigValues["qwenTts"]["mode"] => {
+    if (model.includes("VoiceDesign")) return "voiceDesign";
+    if (model.includes("CustomVoice")) return "customVoice";
+    return "base";
+  };
   const modelOptions = useMemo(() => {
     if (!ollamaEnabled || ollamaModels.length === 0) return [];
     return ollamaModels;
@@ -343,9 +373,12 @@ export default function ConfigPanel({
                 const nextVoice = nextModel.startsWith("Marvis-AI")
                   ? MARVIS_DEFAULT_VOICE
                   : config.ttsVoice;
+                const nextTtsModel = nextModel.startsWith("mlx-community/Qwen3-TTS")
+                  ? "mlx-community/Qwen3-TTS"
+                  : nextModel;
                 onConfigChange({
                   ...config,
-                  ttsModel: nextModel,
+                  ttsModel: nextTtsModel,
                   ttsVoice: nextVoice,
                 });
               }}
@@ -366,56 +399,26 @@ export default function ConfigPanel({
             </select>
           </label>
 
-          <label style={{ display: "block", marginBottom: "12px" }}>
-            <div style={{ marginBottom: "6px" }}>
-              {isMarvisModel ? "Language" : "Voice language filter"}
-            </div>
-            <select
-              value={config.ttsLanguage}
-              onChange={(event) => {
-                const nextLanguage = event.target.value;
-                const voiceForLanguage = KOKORO_VOICES.find(
-                  (voice) => voice.language === nextLanguage
-                );
-                const nextVoice =
-                  !isMarvisModel && voiceForLanguage
-                    ? voiceForLanguage.id
-                    : config.ttsVoice;
-                onConfigChange({
-                  ...config,
-                  ttsLanguage: nextLanguage,
-                  ttsVoice: nextVoice,
-                });
-              }}
-              disabled={isMarvisModel}
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                borderRadius: "6px",
-                border: "1px solid rgba(255,255,255,0.2)",
-                background: "rgba(255,255,255,0.04)",
-                color: "inherit",
-                opacity: isMarvisModel ? 0.6 : 1,
-              }}
-            >
-              {TTS_LANGUAGES.map((language) => (
-                <option key={language.id} value={language.id}>
-                  {language.label}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {isMarvisModel ? (
-            <label style={{ display: "block" }}>
-              <div style={{ marginBottom: "6px" }}>Voice (optional)</div>
-              <input
-                type="text"
-                value={config.ttsVoice}
-                onChange={(event) =>
-                  onConfigChange({ ...config, ttsVoice: event.target.value })
-                }
-                placeholder={MARVIS_DEFAULT_VOICE}
+          {isKokoroModel && (
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>
+                Voice language filter
+              </div>
+              <select
+                value={config.ttsLanguage}
+                onChange={(event) => {
+                  const nextLanguage = event.target.value;
+                  const voiceForLanguage = KOKORO_VOICES.find(
+                    (voice) => voice.language === nextLanguage
+                  );
+                  const nextVoice =
+                    voiceForLanguage?.id ?? config.ttsVoice;
+                  onConfigChange({
+                    ...config,
+                    ttsLanguage: nextLanguage,
+                    ttsVoice: nextVoice,
+                  });
+                }}
                 style={{
                   width: "100%",
                   padding: "8px 10px",
@@ -424,9 +427,17 @@ export default function ConfigPanel({
                   background: "rgba(255,255,255,0.04)",
                   color: "inherit",
                 }}
-              />
+              >
+                {TTS_LANGUAGES.map((language) => (
+                  <option key={language.id} value={language.id}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
             </label>
-          ) : (
+          )}
+
+          {isKokoroModel && (
             <label style={{ display: "block" }}>
               <div style={{ marginBottom: "6px" }}>Voice</div>
               <select
@@ -455,6 +466,56 @@ export default function ConfigPanel({
                 ))}
               </select>
             </label>
+          )}
+
+          {isMarvisModel && (
+            <>
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Language</div>
+                <select
+                  value={config.ttsLanguage}
+                  onChange={(event) =>
+                    onConfigChange({
+                      ...config,
+                      ttsLanguage: event.target.value,
+                    })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                >
+                  {TTS_LANGUAGES.map((language) => (
+                    <option key={language.id} value={language.id}>
+                      {language.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label style={{ display: "block" }}>
+                <div style={{ marginBottom: "6px" }}>Voice (optional)</div>
+                <input
+                  type="text"
+                  value={config.ttsVoice}
+                  onChange={(event) =>
+                    onConfigChange({ ...config, ttsVoice: event.target.value })
+                  }
+                  placeholder={MARVIS_DEFAULT_VOICE}
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+              </label>
+            </>
           )}
           <label
             style={{
@@ -485,6 +546,293 @@ export default function ConfigPanel({
             settings.
           </p>
         </section>
+
+        {isQwenModel && (
+          <section
+            style={{
+              marginBottom: "24px",
+              padding: "16px",
+              borderRadius: "12px",
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "rgba(255,255,255,0.03)",
+            }}
+          >
+            <h2 style={{ fontSize: "16px", marginBottom: "8px" }}>
+              Qwen3 TTS (MLX)
+            </h2>
+            <p style={{ marginBottom: "12px", opacity: 0.7 }}>
+              Qwen settings only apply when a Qwen3 model is selected.
+            </p>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Mode</div>
+              <select
+                value={config.qwenTts.mode}
+                onChange={(event) =>
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      mode: event.target.value as ConfigValues["qwenTts"]["mode"],
+                      model: pickQwenModelForMode(
+                        event.target.value as ConfigValues["qwenTts"]["mode"],
+                        config.qwenTts.model
+                      ),
+                    },
+                  })
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              >
+                <option value="base">Base</option>
+                <option value="customVoice">CustomVoice (emotion)</option>
+                <option value="voiceDesign">VoiceDesign</option>
+                <option value="voiceCloning">Voice Cloning</option>
+              </select>
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Qwen model</div>
+              <select
+                value={config.qwenTts.model}
+                onChange={(event) =>
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      model: event.target.value,
+                      mode: modeFromQwenModel(event.target.value),
+                    },
+                  })
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              >
+                {QWEN_TTS_MODELS.map((model) => (
+                  <option key={model} value={model}>
+                    {model}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Language</div>
+              <select
+                value={config.qwenTts.language}
+                onChange={(event) =>
+                  onConfigChange({
+                    ...config,
+                    qwenTts: { ...config.qwenTts, language: event.target.value },
+                  })
+                }
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              >
+                {QWEN_TTS_LANGUAGES.map((language) => (
+                  <option key={language.id} value={language.id}>
+                    {language.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(config.qwenTts.mode === "base" ||
+              config.qwenTts.mode === "customVoice") && (
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Speaker</div>
+                <select
+                  value={config.qwenTts.speaker}
+                  onChange={(event) =>
+                    onConfigChange({
+                      ...config,
+                      qwenTts: {
+                        ...config.qwenTts,
+                        speaker: event.target.value,
+                      },
+                    })
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                >
+                  {QWEN_TTS_SPEAKERS.map((speaker) => (
+                    <option key={speaker.id} value={speaker.id}>
+                      {speaker.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Temperature</div>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="2"
+                value={config.qwenTts.temperature}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextTemp = raw === "" ? 0 : Number.parseFloat(raw);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      temperature: Number.isFinite(nextTemp) ? nextTemp : 0,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+              <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                Lower values are more consistent. Use 0 for deterministic output.
+              </div>
+            </label>
+            {qwenNeedsInstruct && (
+              <label style={{ display: "block", marginBottom: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>Instruction</div>
+                <input
+                  type="text"
+                  value={config.qwenTts.instruct}
+                  onChange={(event) =>
+                    onConfigChange({
+                      ...config,
+                      qwenTts: { ...config.qwenTts, instruct: event.target.value },
+                    })
+                  }
+                  placeholder={
+                    qwenMode === "customVoice"
+                      ? "Very happy and excited."
+                      : "A cheerful young female voice with high pitch."
+                  }
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+              </label>
+            )}
+            {qwenNeedsCloneInputs && (
+              <>
+                <label style={{ display: "block", marginBottom: "12px" }}>
+                  <div style={{ marginBottom: "6px" }}>Reference audio path</div>
+                  <input
+                    type="text"
+                    value={config.qwenTts.refAudioPath}
+                    onChange={(event) =>
+                      onConfigChange({
+                        ...config,
+                        qwenTts: {
+                          ...config.qwenTts,
+                          refAudioPath: event.target.value,
+                        },
+                      })
+                    }
+                    placeholder="path/to/sample_audio.wav"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block", marginBottom: "12px" }}>
+                  <div style={{ marginBottom: "6px" }}>Reference transcript</div>
+                  <input
+                    type="text"
+                    value={config.qwenTts.refText}
+                    onChange={(event) =>
+                      onConfigChange({
+                        ...config,
+                        qwenTts: { ...config.qwenTts, refText: event.target.value },
+                      })
+                    }
+                    placeholder="This is what my voice sounds like."
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+              </>
+            )}
+            <label style={{ display: "block", marginBottom: "12px" }}>
+              <div style={{ marginBottom: "6px" }}>Seed (deterministic voice)</div>
+              <input
+                type="number"
+                value={config.qwenTts.seed}
+                onChange={(event) => {
+                  const raw = event.target.value.trim();
+                  const nextSeed = raw === "" ? 0 : Number.parseInt(raw, 10);
+                  onConfigChange({
+                    ...config,
+                    qwenTts: {
+                      ...config.qwenTts,
+                      seed: Number.isFinite(nextSeed) ? nextSeed : 0,
+                    },
+                  });
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.2)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "inherit",
+                }}
+              />
+            </label>
+            {qwenNeedsInstruct && !config.qwenTts.instruct && (
+              <div style={{ marginTop: "6px", color: "#ffdf8a" }}>
+                Instruction is required for this Qwen mode.
+              </div>
+            )}
+            {qwenNeedsCloneInputs &&
+              (!config.qwenTts.refAudioPath || !config.qwenTts.refText) && (
+                <div style={{ marginTop: "6px", color: "#ffdf8a" }}>
+                  Voice cloning requires a reference audio path and transcript.
+                </div>
+              )}
+          </section>
+        )}
 
         <section
           style={{
