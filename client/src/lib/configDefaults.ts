@@ -6,6 +6,7 @@ export type ConfigValues = {
   ttsModel: string;
   ttsLanguage: string;
   ttsVoice: string;
+  ttsSentenceStreaming: boolean;
   llmProvider: "openai-compatible" | "ollama";
   llmBaseUrl: string;
   llmModel: string;
@@ -35,6 +36,7 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
   ttsModel: "mlx-community/Kokoro-82M-bf16",
   ttsLanguage: "en-US",
   ttsVoice: "af_heart",
+  ttsSentenceStreaming: false,
   llmProvider: "openai-compatible",
   llmBaseUrl: "http://127.0.0.1:1234/v1",
   llmModel: "gemma-3n-e4b-it-text",
@@ -51,6 +53,8 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
     ttsModel: values.ttsModel ?? DEFAULT_CONFIG_VALUES.ttsModel,
     ttsLanguage: values.ttsLanguage ?? DEFAULT_CONFIG_VALUES.ttsLanguage,
     ttsVoice: values.ttsVoice ?? DEFAULT_CONFIG_VALUES.ttsVoice,
+    ttsSentenceStreaming:
+      values.ttsSentenceStreaming ?? DEFAULT_CONFIG_VALUES.ttsSentenceStreaming,
     llmProvider: values.llmProvider ?? DEFAULT_CONFIG_VALUES.llmProvider,
     llmBaseUrl: values.llmBaseUrl ?? DEFAULT_CONFIG_VALUES.llmBaseUrl,
     llmModel: values.llmModel ?? DEFAULT_CONFIG_VALUES.llmModel,

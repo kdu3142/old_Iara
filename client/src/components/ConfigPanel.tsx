@@ -453,6 +453,30 @@ export default function ConfigPanel({
               </select>
             </label>
           )}
+          <label
+            style={{
+              display: "flex",
+              gap: "8px",
+              alignItems: "center",
+              marginTop: "12px",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={config.ttsSentenceStreaming}
+              onChange={(event) =>
+                onConfigChange({
+                  ...config,
+                  ttsSentenceStreaming: event.target.checked,
+                })
+              }
+            />
+            Stream TTS per sentence (faster, more segmented)
+          </label>
+          <p style={{ marginTop: "8px", opacity: 0.7 }}>
+            When enabled, long replies are split and synthesized sentence by
+            sentence while preserving playback order.
+          </p>
           <p style={{ marginTop: "8px", opacity: 0.7 }}>
             Model changes apply to new sessions; reconnect to use updated
             settings.

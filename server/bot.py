@@ -4,7 +4,7 @@ import json
 import os
 import sys
 from contextlib import asynccontextmanager
-from typing import Dict
+from typing import Dict, Optional
 
 # Add local pipecat to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "pipecat", "src"))
@@ -150,64 +150,81 @@ SUPPORTED_TTS_MODELS = {
     "Marvis-AI/marvis-tts-250m-v0.1",
 }
 
-KOKORO_VOICES = {
-    "af_heart",
-    "af_alloy",
-    "af_aoede",
-    "af_bella",
-    "af_jessica",
-    "af_kore",
-    "af_nicole",
-    "af_nova",
-    "af_river",
-    "af_sarah",
-    "af_sky",
-    "am_adam",
-    "am_echo",
-    "am_eric",
-    "am_fenrir",
-    "am_liam",
-    "am_michael",
-    "am_onyx",
-    "am_puck",
-    "am_santa",
-    "bf_alice",
-    "bf_emma",
-    "bf_isabella",
-    "bf_lily",
-    "bm_daniel",
-    "bm_fable",
-    "bm_george",
-    "bm_lewis",
-    "jf_alpha",
-    "jf_gongitsune",
-    "jf_nezumi",
-    "jf_tebukuro",
-    "jm_kumo",
-    "zf_xiaobei",
-    "zf_xiaoni",
-    "zf_xiaoxiao",
-    "zf_xiaoyi",
-    "zm_yunjian",
-    "zm_yunxi",
-    "zm_yunxia",
-    "zm_yunyang",
-    "ef_dora",
-    "em_alex",
-    "em_santa",
-    "ff_siwis",
-    "hf_alpha",
-    "hf_beta",
-    "hm_omega",
-    "hm_psi",
-    "if_sara",
-    "im_nicola",
-    "pf_dora",
-    "pm_alex",
-    "pm_santa",
+KOKORO_VOICE_LIST = [
+    ("af_heart", "en-US"),
+    ("af_alloy", "en-US"),
+    ("af_aoede", "en-US"),
+    ("af_bella", "en-US"),
+    ("af_jessica", "en-US"),
+    ("af_kore", "en-US"),
+    ("af_nicole", "en-US"),
+    ("af_nova", "en-US"),
+    ("af_river", "en-US"),
+    ("af_sarah", "en-US"),
+    ("af_sky", "en-US"),
+    ("am_adam", "en-US"),
+    ("am_echo", "en-US"),
+    ("am_eric", "en-US"),
+    ("am_fenrir", "en-US"),
+    ("am_liam", "en-US"),
+    ("am_michael", "en-US"),
+    ("am_onyx", "en-US"),
+    ("am_puck", "en-US"),
+    ("am_santa", "en-US"),
+    ("bf_alice", "en-GB"),
+    ("bf_emma", "en-GB"),
+    ("bf_isabella", "en-GB"),
+    ("bf_lily", "en-GB"),
+    ("bm_daniel", "en-GB"),
+    ("bm_fable", "en-GB"),
+    ("bm_george", "en-GB"),
+    ("bm_lewis", "en-GB"),
+    ("jf_alpha", "ja"),
+    ("jf_gongitsune", "ja"),
+    ("jf_nezumi", "ja"),
+    ("jf_tebukuro", "ja"),
+    ("jm_kumo", "ja"),
+    ("zf_xiaobei", "zh"),
+    ("zf_xiaoni", "zh"),
+    ("zf_xiaoxiao", "zh"),
+    ("zf_xiaoyi", "zh"),
+    ("zm_yunjian", "zh"),
+    ("zm_yunxi", "zh"),
+    ("zm_yunxia", "zh"),
+    ("zm_yunyang", "zh"),
+    ("ef_dora", "es"),
+    ("em_alex", "es"),
+    ("em_santa", "es"),
+    ("ff_siwis", "fr"),
+    ("hf_alpha", "hi"),
+    ("hf_beta", "hi"),
+    ("hm_omega", "hi"),
+    ("hm_psi", "hi"),
+    ("if_sara", "it"),
+    ("im_nicola", "it"),
+    ("pf_dora", "pt-BR"),
+    ("pm_alex", "pt-BR"),
+    ("pm_santa", "pt-BR"),
+]
+
+KOKORO_VOICES = {voice_id for voice_id, _ in KOKORO_VOICE_LIST}
+KOKORO_VOICE_LANGUAGE = {
+    voice_id: language for voice_id, language in KOKORO_VOICE_LIST
 }
+KOKORO_VOICES_BY_LANGUAGE = {}
+for voice_id, language in KOKORO_VOICE_LIST:
+    KOKORO_VOICES_BY_LANGUAGE.setdefault(language, []).append(voice_id)
 
 MARVIS_VOICES = {"conversational_a"}
+
+SUPPORTED_TTS_LANGUAGES = set(KOKORO_VOICES_BY_LANGUAGE.keys())
+TTS_LANGUAGE_ALIASES = {
+    "pt": "pt-BR",
+    "pt-br": "pt-BR",
+    "pt br": "pt-BR",
+    "pt_br": "pt-BR",
+    "ptbr": "pt-BR",
+}
 
 DEFAULT_CONFIG = {
     "whisperModel": MLXModel.LARGE_V3_TURBO_Q4.value,
@@ -215,11 +232,29 @@ DEFAULT_CONFIG = {
     "ttsModel": "mlx-community/Kokoro-82M-bf16",
     "ttsLanguage": "en-US",
     "ttsVoice": "af_heart",
+    "ttsSentenceStreaming": False,
     "llmProvider": "openai-compatible",
     "llmBaseUrl": "http://127.0.0.1:1234/v1",
     "llmModel": "gemma-3n-e4b-it-text",
     "systemPrompt": DEFAULT_SYSTEM_PROMPT,
 }
+
+
+def _normalize_tts_language(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = value.strip()
+    if not normalized:
+        return ""
+    lowered = normalized.lower()
+    return TTS_LANGUAGE_ALIASES.get(lowered, normalized)
+
+
+def _default_voice_for_language(language: str) -> Optional[str]:
+    voices = KOKORO_VOICES_BY_LANGUAGE.get(language)
+    if voices:
+        return voices[0]
+    return None
 
 
 def _load_active_config() -> dict:
@@ -253,12 +288,29 @@ def _load_active_config() -> dict:
     if config["ttsModel"] not in SUPPORTED_TTS_MODELS:
         config["ttsModel"] = DEFAULT_CONFIG["ttsModel"]
 
+    normalized_tts_language = _normalize_tts_language(config.get("ttsLanguage"))
+    if normalized_tts_language not in SUPPORTED_TTS_LANGUAGES:
+        inferred_language = KOKORO_VOICE_LANGUAGE.get(config.get("ttsVoice", ""))
+        config["ttsLanguage"] = inferred_language or DEFAULT_CONFIG["ttsLanguage"]
+    else:
+        config["ttsLanguage"] = normalized_tts_language
+
     if config["ttsModel"].startswith("Marvis-AI"):
         if config["ttsVoice"] not in MARVIS_VOICES:
             config["ttsVoice"] = None
     else:
         if config["ttsVoice"] not in KOKORO_VOICES:
-            config["ttsVoice"] = DEFAULT_CONFIG["ttsVoice"]
+            config["ttsVoice"] = (
+                _default_voice_for_language(config["ttsLanguage"])
+                or DEFAULT_CONFIG["ttsVoice"]
+            )
+        else:
+            expected_language = KOKORO_VOICE_LANGUAGE.get(config["ttsVoice"])
+            if expected_language and expected_language != config["ttsLanguage"]:
+                config["ttsVoice"] = (
+                    _default_voice_for_language(config["ttsLanguage"])
+                    or DEFAULT_CONFIG["ttsVoice"]
+                )
 
     if config["llmProvider"] not in {"openai-compatible", "ollama"}:
         config["llmProvider"] = DEFAULT_CONFIG["llmProvider"]
@@ -271,6 +323,9 @@ def _load_active_config() -> dict:
 
     if not isinstance(config.get("systemPrompt"), str) or not config["systemPrompt"].strip():
         config["systemPrompt"] = DEFAULT_CONFIG["systemPrompt"]
+
+    if not isinstance(config.get("ttsSentenceStreaming"), bool):
+        config["ttsSentenceStreaming"] = DEFAULT_CONFIG["ttsSentenceStreaming"]
 
     return config
 
@@ -299,6 +354,7 @@ async def run_bot(webrtc_connection):
         model=config["ttsModel"],
         voice=config["ttsVoice"],
         sample_rate=24000,
+        sentence_streaming_enabled=config["ttsSentenceStreaming"],
     )
 
     llm = OpenAILLMService(
