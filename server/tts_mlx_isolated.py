@@ -95,8 +95,6 @@ class TTSMLXIsolated(TTSService):
         return re.sub(r"\s+", " ", text).strip()
 
     def _is_too_short(self, text: str) -> bool:
-        if len(text) < self._sentence_min_chars:
-            return True
         return len(text.split()) < self._sentence_min_words
 
     def _is_too_long(self, text: str) -> bool:
@@ -132,9 +130,6 @@ class TTSMLXIsolated(TTSService):
                 buffer = segment
         if buffer:
             merged.append(buffer)
-        if len(merged) > 1 and self._is_too_short(merged[-1]):
-            merged[-2] = f"{merged[-2]} {merged[-1]}".strip()
-            merged.pop()
         return merged
 
     def _chunk_by_words(self, text: str) -> List[str]:
@@ -158,7 +153,7 @@ class TTSMLXIsolated(TTSService):
             current.append(word)
             if (
                 len(" ".join(current)) >= self._sentence_min_chars
-                and word.endswith((",", ";", ":", "—", "-"))
+                and word.endswith((";", ":", "—", "-"))
             ):
                 chunks.append(" ".join(current).strip())
                 current = []
@@ -244,6 +239,24 @@ class TTSMLXIsolated(TTSService):
             logger.error(f"Failed to start worker: {e}")
             return False
 
+    def _reset_worker_state(self, state: Dict[str, Any], reason: str) -> None:
+        """Terminate the worker process and clear shared state."""
+        try:
+            if self._process and self._process.poll() is None:
+                logger.warning(f"Resetting worker due to: {reason}")
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=5)
+                except Exception:
+                    self._process.kill()
+        except Exception as exc:
+            logger.error(f"Failed to terminate worker cleanly: {exc}")
+        finally:
+            self._process = None
+            state["process"] = None
+            state["initialized"] = False
+            self._initialized = False
+
     def _send_command(self, command: dict) -> dict:
         """Send command to worker and get response."""
         try:
@@ -267,12 +280,20 @@ class TTSMLXIsolated(TTSService):
                 if command.get("cmd") == "init" and str(command.get("model", "")).startswith(
                     "mlx-community/Qwen3-TTS-"
                 ):
-                    timeout = 120.0
+                    timeout = 600.0
+                elif (
+                    command.get("cmd") == "generate"
+                    and command.get("mode") is not None
+                    and command.get("language") is not None
+                ):
+                    # Qwen generate can take longer on first run (model warmup / caching).
+                    timeout = 240.0
 
                 deadline = time.monotonic() + timeout
                 while True:
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
+                        self._reset_worker_state(state, "response timeout")
                         return {"error": "Worker response timeout"}
 
                     ready, _, _ = select.select([self._process.stdout], [], [], min(0.5, remaining))
@@ -286,6 +307,7 @@ class TTSMLXIsolated(TTSService):
                             stderr_output = (
                                 self._process.stderr.read() if self._process.stderr else ""
                             )
+                            self._reset_worker_state(state, "worker process died")
                             return {"error": f"Worker process died. stderr: {stderr_output}"}
                         return {"error": "No response from worker"}
 
@@ -299,6 +321,16 @@ class TTSMLXIsolated(TTSService):
                         logger.debug(f"Ignoring non-JSON worker output: {response_text}")
                         continue
 
+                    if (
+                        command.get("cmd") == "generate"
+                        and response_data.get("success")
+                        and "audio" not in response_data
+                    ):
+                        logger.warning(
+                            "Worker returned success without audio; waiting for audio response."
+                        )
+                        continue
+
                     # Don't log the full response if it contains audio data (too verbose)
                     if "audio" in response_data:
                         logger.debug(
@@ -310,6 +342,7 @@ class TTSMLXIsolated(TTSService):
 
         except Exception as e:
             logger.error(f"Worker communication error: {e}")
+            self._reset_worker_state(self._get_shared_state(), "communication error")
             # Get stderr if available
             if self._process and self._process.stderr:
                 try:
@@ -333,12 +366,12 @@ class TTSMLXIsolated(TTSService):
             "language": self._language,
         }
         if self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+            qwen_mode = self._qwen_settings.get("mode")
             init_payload.update(
                 {
                     "voice": None,
                     "language": self._qwen_settings.get("language"),
-                    "mode": self._qwen_settings.get("mode"),
-                    "speaker": self._qwen_settings.get("speaker"),
+                    "mode": qwen_mode,
                     "seed": self._qwen_settings.get("seed"),
                     "temperature": self._qwen_settings.get("temperature"),
                     "topK": self._qwen_settings.get("topK"),
@@ -351,6 +384,8 @@ class TTSMLXIsolated(TTSService):
                     "xVectorOnlyMode": self._qwen_settings.get("xVectorOnlyMode"),
                 }
             )
+            if qwen_mode in ("base", "customVoice"):
+                init_payload["speaker"] = self._qwen_settings.get("speaker")
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
@@ -410,12 +445,11 @@ class TTSMLXIsolated(TTSService):
     async def _generate_audio_bytes(self, text: str) -> bytes:
         payload = {"cmd": "generate", "text": text}
         if self._model_name.startswith("mlx-community/Qwen3-TTS-"):
+            qwen_mode = self._qwen_settings.get("mode")
             payload.update(
                 {
-                    "mode": self._qwen_settings.get("mode"),
+                    "mode": qwen_mode,
                     "language": self._qwen_settings.get("language"),
-                    "speaker": self._qwen_settings.get("speaker"),
-                    "instruct": self._qwen_settings.get("instruct"),
                     "refAudioPath": self._qwen_settings.get("refAudioPath"),
                     "refText": self._qwen_settings.get("refText"),
                     "seed": self._qwen_settings.get("seed"),
@@ -430,6 +464,10 @@ class TTSMLXIsolated(TTSService):
                     "xVectorOnlyMode": self._qwen_settings.get("xVectorOnlyMode"),
                 }
             )
+            if qwen_mode in ("customVoice", "voiceDesign"):
+                payload["instruct"] = self._qwen_settings.get("instruct")
+            if qwen_mode in ("base", "customVoice"):
+                payload["speaker"] = self._qwen_settings.get("speaker")
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(
             None, self._send_command, payload

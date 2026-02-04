@@ -1,5 +1,5 @@
 import type { ConfigValues, Preset } from "@/lib/configDefaults";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   KOKORO_VOICES,
   MARVIS_DEFAULT_VOICE,
@@ -26,6 +26,79 @@ type ConfigPanelProps = {
   onSavePreset: () => void;
   onSaveAsNewPreset: () => void;
   onResetDefaults: () => void;
+};
+
+const RECORDING_MIME_CANDIDATES = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/ogg;codecs=opus",
+  "audio/ogg",
+];
+
+const pickRecordingMimeType = () => {
+  if (typeof MediaRecorder === "undefined") return "";
+  for (const candidate of RECORDING_MIME_CANDIDATES) {
+    if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+  }
+  return "";
+};
+
+const writeString = (view: DataView, offset: number, value: string) => {
+  for (let i = 0; i < value.length; i += 1) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
+};
+
+const encodeWav = (audioBuffer: AudioBuffer) => {
+  const numChannels = audioBuffer.numberOfChannels;
+  const length = audioBuffer.length;
+  const sampleRate = audioBuffer.sampleRate;
+  const mono = new Float32Array(length);
+  if (numChannels === 1) {
+    mono.set(audioBuffer.getChannelData(0));
+  } else {
+    for (let channel = 0; channel < numChannels; channel += 1) {
+      const data = audioBuffer.getChannelData(channel);
+      for (let i = 0; i < length; i += 1) {
+        mono[i] += data[i];
+      }
+    }
+    for (let i = 0; i < length; i += 1) {
+      mono[i] /= numChannels;
+    }
+  }
+  const buffer = new ArrayBuffer(44 + length * 2);
+  const view = new DataView(buffer);
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + length * 2, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, mono[i]));
+    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    offset += 2;
+  }
+  return buffer;
+};
+
+const blobToWav = async (blob: Blob) => {
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioContext = new (window.AudioContext ||
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext)();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer.slice(0));
+  await audioContext.close();
+  const wavBuffer = encodeWav(audioBuffer);
+  return new Blob([wavBuffer], { type: "audio/wav" });
 };
 
 export default function ConfigPanel({
@@ -63,10 +136,24 @@ export default function ConfigPanel({
   const qwenMode = config.qwenTts.mode;
   const qwenNeedsInstruct = qwenMode === "customVoice" || qwenMode === "voiceDesign";
   const qwenNeedsCloneInputs = qwenMode === "voiceCloning";
+  const refAudioPath = config.qwenTts.refAudioPath?.trim() ?? "";
+  const refAudioUrl = refAudioPath
+    ? `/api/qwen/ref-audio?path=${encodeURIComponent(refAudioPath)}`
+    : "";
   const turnTaking = config.turnTaking;
   const vadSettings = turnTaking.vad;
   const smartTurnSettings = turnTaking.smartTurn;
   const smartTurnEnabled = smartTurnSettings.enabled;
+  const configRef = useRef(config);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const [recordingStatus, setRecordingStatus] = useState<
+    "idle" | "recording" | "processing" | "saving" | "error"
+  >("idle");
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingSavedPath, setRecordingSavedPath] = useState<string | null>(null);
   const pickQwenModelForMode = (
     mode: ConfigValues["qwenTts"]["mode"],
     currentModel: string
@@ -93,10 +180,54 @@ export default function ConfigPanel({
     if (!ollamaEnabled || ollamaModels.length === 0) return [];
     return ollamaModels;
   }, [ollamaEnabled, ollamaModels]);
+  const qwenModelOptions = useMemo(() => {
+    if (qwenMode === "customVoice") {
+      return QWEN_TTS_MODELS.filter((model) => model.includes("CustomVoice"));
+    }
+    if (qwenMode === "voiceDesign") {
+      return QWEN_TTS_MODELS.filter((model) => model.includes("VoiceDesign"));
+    }
+    return QWEN_TTS_MODELS.filter((model) => model.includes("Base"));
+  }, [qwenMode]);
   const ollamaModelMissing =
     ollamaEnabled &&
     modelOptions.length > 0 &&
     !modelOptions.includes(config.llmModel);
+
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  useEffect(() => {
+    return () => {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      if (recordingUrl) {
+        URL.revokeObjectURL(recordingUrl);
+      }
+    };
+  }, [recordingUrl]);
+
+  useEffect(() => {
+    if (!qwenNeedsCloneInputs) {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+      }
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+        mediaStreamRef.current = null;
+      }
+      setRecordingStatus("idle");
+      setRecordingError(null);
+      setRecordingSavedPath(null);
+      setNewRecordingUrl(null);
+    }
+  }, [qwenNeedsCloneInputs]);
 
   useEffect(() => {
     if (!ollamaEnabled) return;
@@ -123,6 +254,113 @@ export default function ConfigPanel({
       });
     return () => controller.abort();
   }, [ollamaEnabled, config.llmBaseUrl, config, onConfigChange]);
+
+  const canRecord =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia);
+
+  const setNewRecordingUrl = (url: string | null) => {
+    setRecordingUrl((prev) => {
+      if (prev) {
+        URL.revokeObjectURL(prev);
+      }
+      return url;
+    });
+  };
+
+  const handleStartRecording = async () => {
+    if (
+      !canRecord ||
+      recordingStatus === "recording" ||
+      recordingStatus === "processing" ||
+      recordingStatus === "saving"
+    )
+      return;
+    setRecordingError(null);
+    setRecordingSavedPath(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      const mimeType = pickRecordingMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined
+      );
+      recordedChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = async () => {
+        if (mediaStreamRef.current) {
+          mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+          mediaStreamRef.current = null;
+        }
+        mediaRecorderRef.current = null;
+        setRecordingStatus("processing");
+        try {
+          const rawBlob = new Blob(recordedChunksRef.current, {
+            type: recorder.mimeType || "audio/webm",
+          });
+          recordedChunksRef.current = [];
+          const wavBlob =
+            rawBlob.type === "audio/wav" ? rawBlob : await blobToWav(rawBlob);
+          const url = URL.createObjectURL(wavBlob);
+          setNewRecordingUrl(url);
+          setRecordingStatus("saving");
+          const formData = new FormData();
+          formData.append("audio", wavBlob, "qwen-reference.wav");
+          const response = await fetch("/api/qwen/ref-audio", {
+            method: "POST",
+            body: formData,
+          });
+          if (!response.ok) {
+            const detail = await response.text();
+            throw new Error(detail || "Upload failed.");
+          }
+          const payload = (await response.json()) as { path?: string };
+          if (!payload.path) {
+            throw new Error("Upload did not return a file path.");
+          }
+          setRecordingSavedPath(payload.path);
+          const current = configRef.current;
+          onConfigChange({
+            ...current,
+            qwenTts: {
+              ...current.qwenTts,
+              refAudioPath: payload.path,
+            },
+          });
+          setRecordingStatus("idle");
+        } catch (error) {
+          setRecordingStatus("error");
+          setRecordingError(
+            error instanceof Error
+              ? error.message
+              : "Recording upload failed."
+          );
+        }
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecordingStatus("recording");
+    } catch (error) {
+      setRecordingStatus("error");
+      setRecordingError(
+        error instanceof Error
+          ? error.message
+          : "Microphone permission denied."
+      );
+    }
+  };
+
+  const handleStopRecording = () => {
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  };
 
   return (
     <div
@@ -932,7 +1170,10 @@ export default function ConfigPanel({
                     qwenTts: {
                       ...config.qwenTts,
                       model: event.target.value,
-                      mode: modeFromQwenModel(event.target.value),
+                      mode:
+                        config.qwenTts.mode === "voiceCloning"
+                          ? "voiceCloning"
+                          : modeFromQwenModel(event.target.value),
                     },
                   })
                 }
@@ -945,7 +1186,7 @@ export default function ConfigPanel({
                   color: "inherit",
                 }}
               >
-                {QWEN_TTS_MODELS.map((model) => (
+                {qwenModelOptions.map((model) => (
                   <option key={model} value={model}>
                     {model}
                   </option>
@@ -1297,6 +1538,117 @@ export default function ConfigPanel({
                     Local path to a clean reference recording for cloning.
                   </div>
                 </label>
+                {refAudioUrl && (
+                  <div style={{ marginBottom: "12px" }}>
+                    <div style={{ marginBottom: "6px" }}>
+                      Reference audio preview
+                    </div>
+                    <audio
+                      controls
+                      key={refAudioUrl}
+                      src={refAudioUrl}
+                      style={{ width: "100%" }}
+                    />
+                  </div>
+                )}
+                <div style={{ marginBottom: "12px" }}>
+                  <div style={{ marginBottom: "6px" }}>Record reference audio</div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={handleStartRecording}
+                      disabled={
+                        !canRecord ||
+                        recordingStatus === "recording" ||
+                        recordingStatus === "processing" ||
+                        recordingStatus === "saving"
+                      }
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        background: "rgba(255,255,255,0.08)",
+                        color: "inherit",
+                        cursor:
+                          !canRecord ||
+                          recordingStatus === "recording" ||
+                          recordingStatus === "processing" ||
+                          recordingStatus === "saving"
+                            ? "not-allowed"
+                            : "pointer",
+                        opacity:
+                          !canRecord ||
+                          recordingStatus === "recording" ||
+                          recordingStatus === "processing" ||
+                          recordingStatus === "saving"
+                            ? 0.6
+                            : 1,
+                      }}
+                    >
+                      {recordingStatus === "recording"
+                        ? "Recording..."
+                        : "Start recording"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStopRecording}
+                      disabled={recordingStatus !== "recording"}
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: "6px",
+                        border: "1px solid rgba(255,255,255,0.2)",
+                        background: "rgba(255,255,255,0.08)",
+                        color: "inherit",
+                        cursor:
+                          recordingStatus === "recording" ? "pointer" : "not-allowed",
+                        opacity: recordingStatus === "recording" ? 1 : 0.6,
+                      }}
+                    >
+                      Stop
+                    </button>
+                  </div>
+                  <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                    Record a short, clean clip. We will save it and fill the path
+                    automatically.
+                  </div>
+                  {recordingStatus === "recording" && (
+                    <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                      Recording... Speak clearly, then click Stop.
+                    </div>
+                  )}
+                  {recordingStatus === "processing" && (
+                    <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                      Processing recording...
+                    </div>
+                  )}
+                  {recordingStatus === "saving" && (
+                    <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                      Saving to project...
+                    </div>
+                  )}
+                  {recordingUrl && (
+                    <audio
+                      controls
+                      src={recordingUrl}
+                      style={{ width: "100%", marginTop: "8px" }}
+                    />
+                  )}
+                  {recordingSavedPath && (
+                    <div style={{ marginTop: "6px", opacity: 0.7 }}>
+                      Saved to {recordingSavedPath}. Save the preset to persist.
+                    </div>
+                  )}
+                  {!canRecord && (
+                    <div style={{ marginTop: "6px", color: "#ffdf8a" }}>
+                      Recording is not available in this browser.
+                    </div>
+                  )}
+                  {recordingError && (
+                    <div style={{ marginTop: "6px", color: "#ffb4b4" }}>
+                      {recordingError}
+                    </div>
+                  )}
+                </div>
                 <label style={{ display: "block", marginBottom: "12px" }}>
                   <div style={{ marginBottom: "6px" }}>Reference transcript</div>
                   <input

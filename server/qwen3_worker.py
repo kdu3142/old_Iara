@@ -17,6 +17,7 @@ import base64
 import numpy as np
 import random
 import inspect
+import os
 
 import logging
 
@@ -340,7 +341,9 @@ class Worker:
             kwargs[default_key] = speaker
 
     def _add_ref_audio_kw(self, params, accepts_kwargs, kwargs, ref_audio):
-        if not ref_audio:
+        if ref_audio is None:
+            return
+        if isinstance(ref_audio, (list, tuple, np.ndarray)) and len(ref_audio) == 0:
             return
         if "ref_audio" in params:
             kwargs["ref_audio"] = ref_audio
@@ -403,6 +406,8 @@ class Worker:
             self._apply_seed(seed)
 
             language = self._normalize_language(language)
+            if mode in ("voiceCloning", "voiceDesign"):
+                speaker = None
             speaker = self._normalize_speaker(speaker, mode)
             if speaker == "INVALID":
                 return {
@@ -422,6 +427,19 @@ class Worker:
             speed = self._normalize_optional_float(speed, min_value=0.1)
             x_vector_only_mode = self._normalize_optional_bool(x_vector_only_mode)
             stt_model = stt_model if isinstance(stt_model, str) and stt_model.strip() else None
+
+            if mode == "voiceCloning":
+                if not ref_audio_path:
+                    return {"error": "Voice cloning requires a reference audio path."}
+                if not os.path.isfile(ref_audio_path):
+                    return {"error": f"Reference audio file not found: {ref_audio_path}"}
+                if not ref_text and not x_vector_only_mode and not stt_model:
+                    return {
+                        "error": (
+                            "Voice cloning requires a reference transcript, or enable "
+                            "x-vector-only mode, or set an STT model for auto-transcription."
+                        )
+                    }
 
             if mode == "customVoice":
                 params, accepts_kwargs = self._signature_info(
@@ -475,7 +493,21 @@ class Worker:
             elif mode == "voiceCloning":
                 ref_audio = ref_audio_path if ref_audio_path else None
                 params, accepts_kwargs = self._signature_info(self.model.generate)
+                if (
+                    "ref_audio" not in params
+                    and "ref_audio_path" not in params
+                    and not accepts_kwargs
+                ):
+                    return {
+                        "error": (
+                            "This mlx-audio build does not accept reference audio for "
+                            "voice cloning. Update mlx-audio to a newer version."
+                        )
+                    }
                 kwargs = {"text": text}
+                if ref_audio and "ref_audio" in params and "ref_audio_path" not in params:
+                    # Pass the path string; mlx-audio will load the file internally.
+                    ref_audio = str(ref_audio)
                 self._add_ref_audio_kw(params, accepts_kwargs, kwargs, ref_audio)
                 self._add_ref_text_kw(params, accepts_kwargs, kwargs, ref_text)
                 self._add_language_kw(

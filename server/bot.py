@@ -34,6 +34,7 @@ from pipecat.transports.network.webrtc_connection import IceServer, SmallWebRTCC
 from pipecat.processors.aggregators.llm_response import LLMUserAggregatorParams
 
 from tts_mlx_isolated import TTSMLXIsolated
+from assistant_sentence_aggregator import AssistantSentenceAggregator
 
 load_dotenv(override=True)
 
@@ -726,11 +727,16 @@ async def _warmup_models(config: dict) -> None:
         language=tts_language,
         qwen_settings=qwen_settings,
         sample_rate=24000,
-        sentence_streaming_enabled=config["ttsSentenceStreaming"],
+        sentence_streaming_enabled=False,
+        aggregate_sentences=False,
     )
 
     await asyncio.gather(_warmup_stt_service(stt), tts.warmup())
-    await tts.warmup_generate("Hello")
+    qwen_mode = None
+    if is_qwen_model and isinstance(qwen_settings, dict):
+        qwen_mode = qwen_settings.get("mode")
+    if qwen_mode != "voiceCloning":
+        await tts.warmup_generate("Hello")
 
 
 async def run_bot(webrtc_connection):
@@ -801,7 +807,8 @@ async def run_bot(webrtc_connection):
         language=tts_language,
         qwen_settings=qwen_settings,
         sample_rate=24000,
-        sentence_streaming_enabled=config["ttsSentenceStreaming"],
+        sentence_streaming_enabled=False,
+        aggregate_sentences=False,
     )
 
     llm_params = None
@@ -845,6 +852,10 @@ async def run_bot(webrtc_connection):
     # RTVI events for Pipecat client UI
     #
     rtvi = RTVIProcessor(config=RTVIConfig(config=[]))
+    assistant_sentence_aggregator = AssistantSentenceAggregator(
+        enabled=config["ttsSentenceStreaming"],
+        min_words=3,
+    )
 
     pipeline = Pipeline(
         [
@@ -853,6 +864,7 @@ async def run_bot(webrtc_connection):
             rtvi,
             context_aggregator.user(),
             llm,
+            assistant_sentence_aggregator,
             tts,
             transport.output(),
             context_aggregator.assistant(),
