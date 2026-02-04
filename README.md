@@ -28,6 +28,25 @@ The LLM service in this bot uses the OpenAI-compatible chat completion HTTP API.
 
 One easy, high-performance, way to run a local LLM server on macOS is [LM Studio](https://lmstudio.ai/). From inside the LM Studio graphical interface, go to the "Developer" tab on the far left to start an HTTP server.
 
+# Unified setup + run (macOS Apple Silicon)
+
+This repo includes a single setup-and-run script that works for both first-time
+setup and subsequent runs:
+
+```shell
+./run.sh
+```
+
+The script will:
+
+  - Install client dependencies (first run only)
+  - Create `server/.env` from `server/env.example` (first run only)
+  - Set up the Python environment (via `uv` if available, otherwise `venv`)
+  - Start the server and web client
+
+Keep LM Studio (or another OpenAI-compatible local server) running before
+starting the script.
+
 # Run the voice agent
 
 The core voice agent code lives in a single file: [server/bot.py](server/bot.py). There's one custom service here that's not included in Pipecat core: we implemented a local MLX-Audio frame processor on top of the excellent [mlx-audio library](https://github.com/Blaizzy/mlx-audio).
