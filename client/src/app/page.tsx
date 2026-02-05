@@ -32,6 +32,7 @@ const isConfigEqual = (left: ConfigValues, right: ConfigValues) =>
   left.llmBaseUrl === right.llmBaseUrl &&
   left.llmModel === right.llmModel &&
   left.llmOllamaThink === right.llmOllamaThink &&
+  JSON.stringify(left.llmOllamaOptions) === JSON.stringify(right.llmOllamaOptions) &&
   left.systemPrompt === right.systemPrompt;
 
 export default function Home() {

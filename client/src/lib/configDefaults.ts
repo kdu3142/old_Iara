@@ -44,6 +44,18 @@ export type ConfigValues = {
   llmBaseUrl: string;
   llmModel: string;
   llmOllamaThink: boolean;
+  llmOllamaOptions: {
+    temperature: number | null;
+    topK: number | null;
+    topP: number | null;
+    minP: number | null;
+    repeatPenalty: number | null;
+    repeatLastN: number | null;
+    seed: number | null;
+    stop: string;
+    numPredict: number | null;
+    numCtx: number | null;
+  };
   systemPrompt: string;
 };
 
@@ -108,6 +120,18 @@ export const DEFAULT_CONFIG_VALUES: ConfigValues = {
   llmBaseUrl: "http://127.0.0.1:1234/v1",
   llmModel: "gemma-3n-e4b-it-text",
   llmOllamaThink: true,
+  llmOllamaOptions: {
+    temperature: null,
+    topK: null,
+    topP: null,
+    minP: null,
+    repeatPenalty: null,
+    repeatLastN: null,
+    seed: null,
+    stop: "",
+    numPredict: null,
+    numCtx: null,
+  },
   systemPrompt:
     "You are Pipecat, a friendly, helpful chatbot.\n\nYour input is text transcribed in realtime from the user's voice. There may be transcription errors. Adjust your responses automatically to account for these errors.\n\nYour output will be converted to audio so don't include special characters in your answers and do not use any markdown or special formatting.\n\nRespond to what the user said in a creative and helpful way. Keep your responses brief unless you are explicitly asked for long or detailed responses. Normally you should use one or two sentences at most. Keep each sentence short. Prefer simple sentences. Try not to use long sentences with multiple comma clauses.\n\nStart the conversation by saying, \"Hello, I'm Pipecat!\" Then stop and wait for the user.",
 };
@@ -130,6 +154,15 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
       if (Number.isFinite(parsed)) return parsed;
     }
     return fallback;
+  };
+  const parseOptionalNumber = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string") {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    return null;
   };
   const clampMin = (value: number, min: number) => Math.max(min, value);
   const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
@@ -287,6 +320,14 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
       : qwenValues.model ?? DEFAULT_CONFIG_VALUES.qwenTts.model
   );
 
+  const ollamaOptions = values.llmOllamaOptions ?? {};
+  const ollamaStop =
+    typeof ollamaOptions.stop === "string"
+      ? ollamaOptions.stop
+      : Array.isArray(ollamaOptions.stop)
+      ? ollamaOptions.stop.join(", ")
+      : DEFAULT_CONFIG_VALUES.llmOllamaOptions.stop;
+
   return {
     connectionUrl: values.connectionUrl ?? DEFAULT_CONFIG_VALUES.connectionUrl,
     noUserVideo: values.noUserVideo ?? DEFAULT_CONFIG_VALUES.noUserVideo,
@@ -347,6 +388,36 @@ export function sanitizeValues(values: Partial<ConfigValues>): ConfigValues {
       values.llmOllamaThink,
       DEFAULT_CONFIG_VALUES.llmOllamaThink
     ),
+    llmOllamaOptions: {
+      temperature:
+        parseOptionalNumber(ollamaOptions.temperature) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.temperature,
+      topK:
+        parseOptionalNumber(ollamaOptions.topK) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.topK,
+      topP:
+        parseOptionalNumber(ollamaOptions.topP) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.topP,
+      minP:
+        parseOptionalNumber(ollamaOptions.minP) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.minP,
+      repeatPenalty:
+        parseOptionalNumber(ollamaOptions.repeatPenalty) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.repeatPenalty,
+      repeatLastN:
+        parseOptionalNumber(ollamaOptions.repeatLastN) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.repeatLastN,
+      seed:
+        parseOptionalNumber(ollamaOptions.seed) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.seed,
+      stop: ollamaStop,
+      numPredict:
+        parseOptionalNumber(ollamaOptions.numPredict) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.numPredict,
+      numCtx:
+        parseOptionalNumber(ollamaOptions.numCtx) ??
+        DEFAULT_CONFIG_VALUES.llmOllamaOptions.numCtx,
+    },
     systemPrompt: values.systemPrompt ?? DEFAULT_CONFIG_VALUES.systemPrompt,
   };
 }

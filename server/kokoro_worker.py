@@ -42,9 +42,30 @@ try:
 except Exception:
     pass
 
+def _coerce_g2p_result(result):
+    if isinstance(result, tuple):
+        if len(result) >= 2:
+            return result[0], result[1]
+        if len(result) == 1:
+            return result[0], None
+        return "", None
+    if isinstance(result, str):
+        return result, None
+    try:
+        from collections.abc import Sequence as _Seq
+
+        if isinstance(result, _Seq) and not isinstance(result, (str, bytes)):
+            if len(result) >= 2:
+                return result[0], result[1]
+            if len(result) == 1:
+                return result[0], None
+            return "", None
+    except Exception:
+        pass
+    return result, None
+
 # Compatibility shim for misaki/espeak API changes (KokoroPipeline expects 2 values).
 try:
-    from collections.abc import Sequence
     from misaki import espeak as _misaki_espeak
 
     if not hasattr(_misaki_espeak.EspeakG2P, "_iara_patched"):
@@ -52,10 +73,7 @@ try:
 
         def _call_compat(self, *args, **kwargs):
             result = _orig_call(self, *args, **kwargs)
-            if isinstance(result, Sequence) and not isinstance(result, (str, bytes)):
-                if len(result) > 2:
-                    return tuple(result[:2])
-            return result
+            return _coerce_g2p_result(result)
 
         _misaki_espeak.EspeakG2P.__call__ = _call_compat
         _misaki_espeak.EspeakG2P._iara_patched = True
@@ -65,7 +83,6 @@ except Exception:
 # Compatibility shim for KokoroPipeline using EspeakG2P that returns >2 values.
 try:
     from mlx_audio.tts.models.kokoro import pipeline as _kokoro_pipeline
-    from collections.abc import Sequence as _Seq
 
     if not hasattr(_kokoro_pipeline.KokoroPipeline, "_iara_patched"):
         _orig_init = _kokoro_pipeline.KokoroPipeline.__init__
@@ -78,10 +95,7 @@ try:
 
             def _g2p_compat(text, *a, **k):
                 result = g2p(text, *a, **k)
-                if isinstance(result, _Seq) and not isinstance(result, (str, bytes)):
-                    if len(result) > 2:
-                        return tuple(result[:2])
-                return result
+                return _coerce_g2p_result(result)
 
             self.g2p = _g2p_compat
 

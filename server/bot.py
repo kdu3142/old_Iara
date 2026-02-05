@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import json
+import math
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -308,6 +309,18 @@ DEFAULT_CONFIG = {
     "llmBaseUrl": "http://127.0.0.1:1234/v1",
     "llmModel": "gemma-3n-e4b-it-text",
     "llmOllamaThink": True,
+    "llmOllamaOptions": {
+        "temperature": None,
+        "top_k": None,
+        "top_p": None,
+        "min_p": None,
+        "repeat_penalty": None,
+        "repeat_last_n": None,
+        "seed": None,
+        "stop": "",
+        "num_predict": None,
+        "num_ctx": None,
+    },
     "systemPrompt": DEFAULT_SYSTEM_PROMPT,
 }
 
@@ -704,6 +717,67 @@ def _load_active_config() -> dict:
         ollama_think = DEFAULT_CONFIG["llmOllamaThink"]
     config["llmOllamaThink"] = ollama_think
 
+    ollama_options = (
+        config.get("llmOllamaOptions")
+        if isinstance(config.get("llmOllamaOptions"), dict)
+        else {}
+    )
+    normalized_ollama_options = DEFAULT_CONFIG["llmOllamaOptions"].copy()
+
+    def _parse_optional_number(value: object):
+        if value is None or value == "":
+            return None
+        parsed = _parse_number(value, None)
+        if parsed is None or (isinstance(parsed, float) and math.isnan(parsed)):
+            return None
+        return parsed
+
+    def _parse_optional_int(value: object):
+        parsed = _parse_optional_number(value)
+        if parsed is None:
+            return None
+        try:
+            return int(parsed)
+        except (TypeError, ValueError):
+            return None
+
+    normalized_ollama_options["temperature"] = _parse_optional_number(
+        ollama_options.get("temperature")
+    )
+    normalized_ollama_options["top_k"] = _parse_optional_int(
+        ollama_options.get("topK", ollama_options.get("top_k"))
+    )
+    normalized_ollama_options["top_p"] = _parse_optional_number(
+        ollama_options.get("topP", ollama_options.get("top_p"))
+    )
+    normalized_ollama_options["min_p"] = _parse_optional_number(
+        ollama_options.get("minP", ollama_options.get("min_p"))
+    )
+    normalized_ollama_options["repeat_penalty"] = _parse_optional_number(
+        ollama_options.get("repeatPenalty", ollama_options.get("repeat_penalty"))
+    )
+    normalized_ollama_options["repeat_last_n"] = _parse_optional_int(
+        ollama_options.get("repeatLastN", ollama_options.get("repeat_last_n"))
+    )
+    normalized_ollama_options["seed"] = _parse_optional_int(ollama_options.get("seed"))
+    normalized_ollama_options["num_predict"] = _parse_optional_int(
+        ollama_options.get("numPredict", ollama_options.get("num_predict"))
+    )
+    normalized_ollama_options["num_ctx"] = _parse_optional_int(
+        ollama_options.get("numCtx", ollama_options.get("num_ctx"))
+    )
+
+    stop_value = ollama_options.get("stop")
+    if isinstance(stop_value, list):
+        cleaned = [str(item).strip() for item in stop_value if str(item).strip()]
+        normalized_ollama_options["stop"] = cleaned
+    elif isinstance(stop_value, str):
+        normalized_ollama_options["stop"] = stop_value.strip()
+    else:
+        normalized_ollama_options["stop"] = ""
+
+    config["llmOllamaOptions"] = normalized_ollama_options
+
     if not isinstance(config.get("systemPrompt"), str) or not config["systemPrompt"].strip():
         config["systemPrompt"] = DEFAULT_CONFIG["systemPrompt"]
 
@@ -841,8 +915,31 @@ async def run_bot(webrtc_connection):
     if config["llmProvider"] == "ollama":
         ollama_think = config.get("llmOllamaThink", True)
         logger.info(f"Ollama think enabled: {ollama_think}")
+        ollama_options = {}
+        raw_options = config.get("llmOllamaOptions")
+        if isinstance(raw_options, dict):
+            for key, value in raw_options.items():
+                if value is None:
+                    continue
+                if isinstance(value, str) and not value.strip():
+                    continue
+                if key == "stop" and isinstance(value, str):
+                    split_values = [
+                        chunk.strip()
+                        for chunk in value.replace("\n", ",").split(",")
+                        if chunk.strip()
+                    ]
+                    if len(split_values) == 1:
+                        ollama_options[key] = split_values[0]
+                    elif len(split_values) > 1:
+                        ollama_options[key] = split_values
+                    continue
+                ollama_options[key] = value
+        extra_body = {"think": ollama_think}
+        if ollama_options:
+            extra_body["options"] = ollama_options
         llm_params = BaseOpenAILLMService.InputParams(
-            extra={"extra_body": {"think": ollama_think}}
+            extra={"extra_body": extra_body}
         )
 
     llm_service = LoggingOpenAILLMService if config["llmProvider"] == "ollama" else OpenAILLMService
@@ -898,13 +995,18 @@ async def run_bot(webrtc_connection):
     )
 
     class FilteredRTVIObserver(RTVIObserver):
-        def __init__(self, *args, llm_sources=None, **kwargs):
+        def __init__(self, *args, llm_sources=None, llm_destinations=None, **kwargs):
             super().__init__(*args, **kwargs)
             self._llm_sources = set(llm_sources or [])
+            self._llm_destinations = set(llm_destinations or [])
 
         async def on_push_frame(self, data):
             if isinstance(data.frame, LLMTextFrame):
-                if data.source not in self._llm_sources:
+                if self._llm_sources and data.source not in self._llm_sources:
+                    self._frames_seen.add(data.frame.id)
+                    return
+                if self._llm_destinations and data.destination not in self._llm_destinations:
+                    self._frames_seen.add(data.frame.id)
                     return
             await super().on_push_frame(data)
 
@@ -914,7 +1016,13 @@ async def run_bot(webrtc_connection):
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[FilteredRTVIObserver(rtvi, llm_sources={assistant_sentence_aggregator})],
+        observers=[
+            FilteredRTVIObserver(
+                rtvi,
+                llm_sources={assistant_sentence_aggregator},
+                llm_destinations={tts},
+            )
+        ],
     )
 
     initial_prompt_sent = False

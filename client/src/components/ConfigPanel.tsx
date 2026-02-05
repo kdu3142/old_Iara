@@ -200,6 +200,24 @@ export default function ConfigPanel({
     ollamaEnabled &&
     modelOptions.length > 0 &&
     !modelOptions.includes(config.llmModel);
+  const ollamaOptions = config.llmOllamaOptions;
+  const updateOllamaOption = (
+    key: keyof ConfigValues["llmOllamaOptions"],
+    value: ConfigValues["llmOllamaOptions"][keyof ConfigValues["llmOllamaOptions"]]
+  ) => {
+    onConfigChange({
+      ...config,
+      llmOllamaOptions: {
+        ...config.llmOllamaOptions,
+        [key]: value,
+      },
+    });
+  };
+  const parseOptionalNumber = (value: string) => {
+    if (value.trim() === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
   useEffect(() => {
     configRef.current = config;
@@ -1990,6 +2008,233 @@ export default function ConfigPanel({
             <p style={{ marginTop: "0px", opacity: 0.7 }}>
               Disable to send think: false for faster responses.
             </p>
+          )}
+          {ollamaEnabled && (
+            <div style={{ marginTop: "16px" }}>
+              <div style={{ marginBottom: "8px", fontWeight: 600 }}>
+                Ollama options
+              </div>
+              <p style={{ marginTop: 0, marginBottom: "12px", opacity: 0.7 }}>
+                Leave blank to use Ollama defaults.
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>temperature</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={ollamaOptions.temperature ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption(
+                        "temperature",
+                        parseOptionalNumber(event.target.value)
+                      )
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>top_k</div>
+                  <input
+                    type="number"
+                    step="1"
+                    value={ollamaOptions.topK ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption("topK", parseOptionalNumber(event.target.value))
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>top_p</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={ollamaOptions.topP ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption("topP", parseOptionalNumber(event.target.value))
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>min_p</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={ollamaOptions.minP ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption("minP", parseOptionalNumber(event.target.value))
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>repeat_penalty</div>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={ollamaOptions.repeatPenalty ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption(
+                        "repeatPenalty",
+                        parseOptionalNumber(event.target.value)
+                      )
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>repeat_last_n</div>
+                  <input
+                    type="number"
+                    step="1"
+                    value={ollamaOptions.repeatLastN ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption(
+                        "repeatLastN",
+                        parseOptionalNumber(event.target.value)
+                      )
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>seed</div>
+                  <input
+                    type="number"
+                    step="1"
+                    value={ollamaOptions.seed ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption("seed", parseOptionalNumber(event.target.value))
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>num_predict</div>
+                  <input
+                    type="number"
+                    step="1"
+                    value={ollamaOptions.numPredict ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption(
+                        "numPredict",
+                        parseOptionalNumber(event.target.value)
+                      )
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+                <label style={{ display: "block" }}>
+                  <div style={{ marginBottom: "6px" }}>num_ctx</div>
+                  <input
+                    type="number"
+                    step="1"
+                    value={ollamaOptions.numCtx ?? ""}
+                    onChange={(event) =>
+                      updateOllamaOption("numCtx", parseOptionalNumber(event.target.value))
+                    }
+                    placeholder="default"
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(255,255,255,0.2)",
+                      background: "rgba(255,255,255,0.04)",
+                      color: "inherit",
+                    }}
+                  />
+                </label>
+              </div>
+              <label style={{ display: "block", marginTop: "12px" }}>
+                <div style={{ marginBottom: "6px" }}>stop</div>
+                <input
+                  type="text"
+                  value={ollamaOptions.stop ?? ""}
+                  onChange={(event) => updateOllamaOption("stop", event.target.value)}
+                  placeholder="comma-separated or single string"
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.2)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "inherit",
+                  }}
+                />
+              </label>
+            </div>
           )}
         </section>
 
