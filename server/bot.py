@@ -370,8 +370,8 @@ class LoggingOpenAILLMService(OpenAILLMService):
         super().__init__(*args, **kwargs)
         self._log_raw_chunks = log_raw_chunks
 
-    async def get_chat_completions(self, context, messages):
-        chunks = await super().get_chat_completions(context, messages)
+    async def get_chat_completions(self, *args, **kwargs):
+        chunks = await super().get_chat_completions(*args, **kwargs)
         if not self._log_raw_chunks:
             return chunks
 
