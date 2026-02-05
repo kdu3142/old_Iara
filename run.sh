@@ -41,6 +41,14 @@ if [[ ! -f "$ROOT_DIR/server/.env" ]]; then
   echo "Update API keys in server/.env if needed."
 fi
 
+# Export server env vars so the client proxy uses the same host/port.
+if [[ -f "$ROOT_DIR/server/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ROOT_DIR/server/.env"
+  set +a
+fi
+
 SERVER_CMD=""
 
 if command -v uv >/dev/null 2>&1; then
