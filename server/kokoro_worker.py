@@ -42,6 +42,24 @@ try:
 except Exception:
     pass
 
+# Compatibility shim for misaki/espeak API changes (KokoroPipeline expects 2 values).
+try:
+    from misaki import espeak as _misaki_espeak
+
+    if not hasattr(_misaki_espeak.EspeakG2P, "_iara_patched"):
+        _orig_call = _misaki_espeak.EspeakG2P.__call__
+
+        def _call_compat(self, *args, **kwargs):
+            result = _orig_call(self, *args, **kwargs)
+            if isinstance(result, tuple) and len(result) > 2:
+                return result[:2]
+            return result
+
+        _misaki_espeak.EspeakG2P.__call__ = _call_compat
+        _misaki_espeak.EspeakG2P._iara_patched = True
+except Exception:
+    pass
+
 # Compatibility shim for phonemizer versions that don't expose EspeakWrapper.set_data_path.
 try:
     from phonemizer.backend.espeak.wrapper import EspeakWrapper

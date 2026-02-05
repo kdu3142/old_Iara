@@ -57,6 +57,7 @@ from pipecat.processors.frameworks.rtvi import RTVIConfig, RTVIObserver, RTVIPro
 from pipecat.transports.network.small_webrtc import SmallWebRTCTransport
 from pipecat.transports.network.webrtc_connection import IceServer, SmallWebRTCConnection
 from pipecat.processors.aggregators.llm_response import LLMUserAggregatorParams
+from pipecat.frames.frames import LLMTextFrame
 
 from tts_mlx_isolated import TTSMLXIsolated
 from assistant_sentence_aggregator import AssistantSentenceAggregator
@@ -896,13 +897,24 @@ async def run_bot(webrtc_connection):
         ]
     )
 
+    class FilteredRTVIObserver(RTVIObserver):
+        def __init__(self, *args, llm_sources=None, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._llm_sources = set(llm_sources or [])
+
+        async def on_push_frame(self, data):
+            if isinstance(data.frame, LLMTextFrame):
+                if data.source not in self._llm_sources:
+                    return
+            await super().on_push_frame(data)
+
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        observers=[RTVIObserver(rtvi)],
+        observers=[FilteredRTVIObserver(rtvi, llm_sources={assistant_sentence_aggregator})],
     )
 
     @rtvi.event_handler("on_client_ready")
