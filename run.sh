@@ -49,6 +49,42 @@ if [[ -f "$ROOT_DIR/server/.env" ]]; then
   set +a
 fi
 
+IARA_SERVER_HOST="${IARA_SERVER_HOST:-localhost}"
+IARA_SERVER_PORT="${IARA_SERVER_PORT:-7860}"
+
+is_port_free() {
+  "$PYTHON_BIN" - "$1" <<'PY' >/dev/null 2>&1
+import socket, sys
+port = int(sys.argv[1])
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    sock.bind(("127.0.0.1", port))
+except OSError:
+    sys.exit(1)
+finally:
+    sock.close()
+sys.exit(0)
+PY
+}
+
+if ! is_port_free "$IARA_SERVER_PORT"; then
+  echo "Port $IARA_SERVER_PORT is in use. Searching for a free port..."
+  for p in $(seq 7861 7899); do
+    if is_port_free "$p"; then
+      IARA_SERVER_PORT="$p"
+      echo "Using port $IARA_SERVER_PORT."
+      break
+    fi
+  done
+  if ! is_port_free "$IARA_SERVER_PORT"; then
+    echo "No free port found in range 7861-7899. Set IARA_SERVER_PORT in server/.env."
+    exit 1
+  fi
+fi
+
+export IARA_SERVER_HOST IARA_SERVER_PORT
+
 SERVER_CMD=""
 
 if command -v uv >/dev/null 2>&1; then
