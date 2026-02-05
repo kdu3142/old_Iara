@@ -142,11 +142,27 @@ export TTS_WORKER_PYTHON="$TTS_VENV/bin/python"
 export QWEN_TTS_PYTHON="$TTS_VENV/bin/python"
 
 cleanup() {
+  # Kill process groups to ensure child processes (e.g. uvicorn, workers) exit too.
   if [[ -n "${CLIENT_PID:-}" ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then
-    kill "$CLIENT_PID"
+    kill -TERM "-$CLIENT_PID" 2>/dev/null || kill -TERM "$CLIENT_PID" 2>/dev/null || true
   fi
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
-    kill "$SERVER_PID"
+    kill -TERM "-$SERVER_PID" 2>/dev/null || kill -TERM "$SERVER_PID" 2>/dev/null || true
+  fi
+  # Give processes a moment to exit cleanly.
+  for _ in {1..20}; do
+    if { [[ -z "${CLIENT_PID:-}" ]] || ! kill -0 "$CLIENT_PID" 2>/dev/null; } && \
+       { [[ -z "${SERVER_PID:-}" ]] || ! kill -0 "$SERVER_PID" 2>/dev/null; }; then
+      break
+    fi
+    sleep 0.1
+  done
+  # Force kill if still running.
+  if [[ -n "${CLIENT_PID:-}" ]] && kill -0 "$CLIENT_PID" 2>/dev/null; then
+    kill -KILL "-$CLIENT_PID" 2>/dev/null || kill -KILL "$CLIENT_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+    kill -KILL "-$SERVER_PID" 2>/dev/null || kill -KILL "$SERVER_PID" 2>/dev/null || true
   fi
   wait "${CLIENT_PID:-}" "${SERVER_PID:-}" 2>/dev/null || true
 }
