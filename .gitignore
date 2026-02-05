@@ -10,3 +10,25 @@ __pycache__
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Python caches/venvs
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.python-version
+.venv-qwen
+
+# Node/Next artifacts
+node_modules/
+.next/
+out/
+dist/
+build/
+
+# Local app config/state
+client/.config/

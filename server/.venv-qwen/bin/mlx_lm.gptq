@@ -1,4 +1,4 @@
-#!/Users/kdu3142/Desktop/Iara/server/.venv-qwen/bin/python3.12
+#!/Users/kdu3142/Desktop/Iara/server/.venv-qwen/bin/python
 import sys
 from mlx_lm.quant.gptq import main
 if __name__ == '__main__':

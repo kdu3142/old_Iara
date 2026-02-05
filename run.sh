@@ -87,6 +87,19 @@ export IARA_SERVER_HOST IARA_SERVER_PORT
 
 SERVER_CMD=""
 
+ensure_pip() {
+  local pybin="$1"
+  if ! "$pybin" -m pip --version >/dev/null 2>&1; then
+    echo "Bootstrapping pip for $pybin..."
+    "$pybin" -m ensurepip --upgrade >/dev/null 2>&1 || true
+  fi
+  if ! "$pybin" -m pip --version >/dev/null 2>&1; then
+    echo "pip is unavailable for $pybin. Recreate the venv or install pip."
+    return 1
+  fi
+  return 0
+}
+
 if command -v uv >/dev/null 2>&1; then
   echo "Setting up server environment with uv..."
   (cd "$ROOT_DIR/server" && uv sync --prerelease=allow)
@@ -109,6 +122,7 @@ PY
     (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv .venv)
     SERVER_VENV_PY="$ROOT_DIR/server/.venv/bin/python"
   fi
+  ensure_pip "$SERVER_VENV_PY"
   "$SERVER_VENV_PY" -m pip install -r "$ROOT_DIR/server/requirements.txt"
   "$SERVER_VENV_PY" -m pip install espeakng_loader
 
@@ -130,6 +144,13 @@ PY
   (cd "$ROOT_DIR/server" && rm -rf .venv-qwen)
   (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
   TTS_VENV_PY="$TTS_VENV/bin/python"
+fi
+if ! ensure_pip "$TTS_VENV_PY"; then
+  echo "Recreating TTS worker virtual environment (pip missing)..."
+  (cd "$ROOT_DIR/server" && rm -rf .venv-qwen)
+  (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
+  TTS_VENV_PY="$TTS_VENV/bin/python"
+  ensure_pip "$TTS_VENV_PY"
 fi
 "$TTS_VENV_PY" -m pip install --upgrade pip
 "$TTS_VENV_PY" -m pip install --pre -U "mlx-audio>=0.3.1"
