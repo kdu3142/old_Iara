@@ -981,12 +981,30 @@ async def lifespan(app: FastAPI):
 
 
 if __name__ == "__main__":
+    def _env_port(default: int) -> int:
+        raw = os.environ.get("IARA_SERVER_PORT") or os.environ.get("PORT")
+        if not raw:
+            return default
+        try:
+            return int(raw)
+        except ValueError:
+            logger.warning("Invalid port in environment: %s", raw)
+            return default
+
+    default_host = os.environ.get("IARA_SERVER_HOST", "localhost")
+    default_port = _env_port(7860)
+
     parser = argparse.ArgumentParser(description="Pipecat Bot Runner")
     parser.add_argument(
-        "--host", default="localhost", help="Host for HTTP server (default: localhost)"
+        "--host",
+        default=default_host,
+        help=f"Host for HTTP server (default: {default_host})",
     )
     parser.add_argument(
-        "--port", type=int, default=7860, help="Port for HTTP server (default: 7860)"
+        "--port",
+        type=int,
+        default=default_port,
+        help=f"Port for HTTP server (default: {default_port})",
     )
     args = parser.parse_args()
 
