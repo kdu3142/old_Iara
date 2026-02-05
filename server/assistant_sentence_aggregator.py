@@ -122,10 +122,11 @@ class AssistantSentenceAggregator(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        if isinstance(frame, TextFrame):
+        if isinstance(frame, (TextFrame, LLMTextFrame)):
             if not self._started:
-                await self.push_frame(frame, direction)
-                return
+                # Treat streamed LLM text as part of the current response even if
+                # we missed the start frame to avoid duplicating output.
+                self._started = True
 
             self._append_text(frame.text)
 

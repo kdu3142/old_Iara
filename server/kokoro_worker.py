@@ -90,7 +90,7 @@ class Worker:
                 list(self.model.generate(text="test", voice=self.voice, speed=1.0))
             return {"success": True}
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"{str(e)}\n{traceback.format_exc()}"}
 
     def _get_available_voices(self):
         if not self.model:

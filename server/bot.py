@@ -853,7 +853,7 @@ async def run_bot(webrtc_connection):
         base_url=config["llmBaseUrl"],
         max_tokens=4096,
         params=llm_params,
-        log_raw_chunks=config["llmProvider"] == "ollama",
+        log_raw_chunks=False,
     )
 
     context = OpenAILLMContext(
