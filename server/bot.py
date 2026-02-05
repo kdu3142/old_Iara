@@ -14,19 +14,23 @@ import sitecustomize  # noqa: F401
 try:
     from transformers.modeling_utils import PreTrainedModel
 
-    if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
-        @property
-        def all_tied_weights_keys(self):
-            keys = getattr(self, "_tied_weights_keys", None)
-            if keys is None:
-                return {}
-            if isinstance(keys, dict):
-                return keys
-            if isinstance(keys, (list, tuple, set)):
-                return {k: None for k in keys}
+    def _get_all_tied(self):
+        keys = getattr(self, "_all_tied_weights_keys", None)
+        if keys is not None:
+            return keys
+        keys = getattr(self, "_tied_weights_keys", None)
+        if keys is None:
             return {}
+        if isinstance(keys, dict):
+            return keys
+        if isinstance(keys, (list, tuple, set)):
+            return {k: None for k in keys}
+        return {}
 
-        PreTrainedModel.all_tied_weights_keys = all_tied_weights_keys
+    def _set_all_tied(self, value):
+        object.__setattr__(self, "_all_tied_weights_keys", value)
+
+    PreTrainedModel.all_tied_weights_keys = property(_get_all_tied, _set_all_tied)
 except Exception:
     pass
 
