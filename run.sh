@@ -60,7 +60,6 @@ else
 import sys
 raise SystemExit(0)
 PY
-  then
     echo "Server virtual environment looks broken. Recreating..."
     (cd "$ROOT_DIR/server" && rm -rf .venv)
     (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv .venv)
@@ -83,7 +82,6 @@ if ! "$TTS_VENV_PY" - <<'PY' >/dev/null 2>&1; then
 import sys
 raise SystemExit(0)
 PY
-then
   echo "TTS virtual environment looks broken. Recreating..."
   (cd "$ROOT_DIR/server" && rm -rf .venv-qwen)
   (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
