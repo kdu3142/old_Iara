@@ -298,10 +298,10 @@ class TTSMLXIsolated(TTSService):
                 import select
 
                 timeout = 10.0
-                if command.get("cmd") == "init" and str(command.get("model", "")).startswith(
-                    "mlx-community/Qwen3-TTS-"
-                ):
-                    timeout = 600.0
+                if command.get("cmd") == "init":
+                    timeout = 240.0
+                    if str(command.get("model", "")).startswith("mlx-community/Qwen3-TTS-"):
+                        timeout = 600.0
                 elif (
                     command.get("cmd") == "generate"
                     and command.get("mode") is not None

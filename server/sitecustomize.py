@@ -19,3 +19,25 @@ try:
 except Exception:
     # If phonemizer isn't installed, do nothing.
     pass
+
+try:
+    from transformers.modeling_utils import PreTrainedModel
+
+    if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
+        # transformers>=5 expects all_tied_weights_keys on PreTrainedModel.
+        # Provide a backward-compatible property for custom models.
+        @property
+        def all_tied_weights_keys(self):
+            keys = getattr(self, "_tied_weights_keys", None)
+            if keys is None:
+                return {}
+            if isinstance(keys, dict):
+                return keys
+            if isinstance(keys, (list, tuple, set)):
+                return {k: None for k in keys}
+            return {}
+
+        PreTrainedModel.all_tied_weights_keys = all_tied_weights_keys
+except Exception:
+    # If transformers isn't installed, do nothing.
+    pass
