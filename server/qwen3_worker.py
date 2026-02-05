@@ -18,6 +18,8 @@ import numpy as np
 import random
 import inspect
 import os
+import urllib.parse
+import urllib.request
 
 import logging
 
@@ -137,12 +139,24 @@ class Worker:
         return {"success": True}
 
     def _resolve_settings(self, req: dict):
-        mode = req.get("mode") or self.mode
-        language = req.get("language") or self.language
-        speaker = req.get("speaker") or self.speaker
-        instruct = req.get("instruct") or self.instruct
-        ref_audio_path = req.get("refAudioPath") or self.ref_audio_path
-        ref_text = req.get("refText") or self.ref_text
+        mode = req.get("mode")
+        if mode is None:
+            mode = self.mode
+        language = req.get("language")
+        if language is None:
+            language = self.language
+        speaker = req.get("speaker")
+        if speaker is None:
+            speaker = self.speaker
+        instruct = req.get("instruct")
+        if instruct is None:
+            instruct = self.instruct
+        ref_audio_path = req.get("refAudioPath")
+        if ref_audio_path is None:
+            ref_audio_path = self.ref_audio_path
+        ref_text = req.get("refText")
+        if ref_text is None:
+            ref_text = self.ref_text
         seed = req.get("seed")
         if seed is None:
             seed = self.seed
@@ -165,6 +179,8 @@ class Worker:
         top_k = req.get("topK")
         top_p = req.get("topP")
         repetition_penalty = req.get("repetitionPenalty")
+        if ref_audio_path:
+            ref_audio_path = self._normalize_ref_audio_path(ref_audio_path)
         return (
             mode,
             language,
@@ -303,6 +319,23 @@ class Worker:
                 return False
         return None
 
+    def _normalize_ref_audio_path(self, value):
+        if value is None:
+            return ""
+        raw = str(value).strip()
+        if not raw:
+            return ""
+        if raw.startswith("file://"):
+            try:
+                parsed = urllib.parse.urlparse(raw)
+                raw = urllib.request.url2pathname(parsed.path)
+            except Exception:
+                pass
+        raw = os.path.expanduser(raw)
+        if not os.path.isabs(raw):
+            raw = os.path.abspath(raw)
+        return raw
+
     def _signature_info(self, func):
         try:
             sig = inspect.signature(func)
@@ -433,13 +466,10 @@ class Worker:
                     return {"error": "Voice cloning requires a reference audio path."}
                 if not os.path.isfile(ref_audio_path):
                     return {"error": f"Reference audio file not found: {ref_audio_path}"}
-                if not ref_text and not x_vector_only_mode and not stt_model:
-                    return {
-                        "error": (
-                            "Voice cloning requires a reference transcript, or enable "
-                            "x-vector-only mode, or set an STT model for auto-transcription."
-                        )
-                    }
+                if not ref_text:
+                    logging.info(
+                        "Voice cloning without reference transcript; using speaker embedding only."
+                    )
 
             if mode == "customVoice":
                 params, accepts_kwargs = self._signature_info(

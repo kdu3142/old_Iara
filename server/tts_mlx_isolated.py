@@ -76,12 +76,33 @@ class TTSMLXIsolated(TTSService):
             "sample_rate": sample_rate,
             "qwen_settings": self._qwen_settings,
         }
-        self._signature = (
+        self._signature = self._build_signature(
+            model=model,
+            voice=voice,
+            language=language,
+            sample_rate=sample_rate,
+            qwen_settings=self._qwen_settings,
+        )
+
+    def _build_signature(
+        self,
+        *,
+        model: str,
+        voice: Optional[str],
+        language: Optional[str],
+        sample_rate: int,
+        qwen_settings: Dict[str, Any],
+    ) -> Tuple[object, ...]:
+        if model.startswith("mlx-community/Qwen3-TTS-"):
+            # Reuse a single worker per Qwen model to avoid reloads when
+            # non-model settings (e.g., speaker/instruct/ref audio) change.
+            return (model, sample_rate, "qwen")
+        return (
             model,
             voice,
             language,
             sample_rate,
-            json.dumps(self._qwen_settings, sort_keys=True),
+            json.dumps(qwen_settings, sort_keys=True),
         )
 
     def _get_shared_state(self) -> Dict[str, Any]:

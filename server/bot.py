@@ -727,7 +727,7 @@ async def _warmup_models(config: dict) -> None:
         language=tts_language,
         qwen_settings=qwen_settings,
         sample_rate=24000,
-        sentence_streaming_enabled=False,
+        sentence_streaming_enabled=config["ttsSentenceStreaming"],
         aggregate_sentences=False,
     )
 
@@ -807,7 +807,7 @@ async def run_bot(webrtc_connection):
         language=tts_language,
         qwen_settings=qwen_settings,
         sample_rate=24000,
-        sentence_streaming_enabled=False,
+        sentence_streaming_enabled=config["ttsSentenceStreaming"],
         aggregate_sentences=False,
     )
 

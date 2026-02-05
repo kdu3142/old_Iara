@@ -55,12 +55,21 @@ else
   fi
 
   echo "Installing server dependencies..."
-  source "$ROOT_DIR/server/.venv/bin/activate"
-  pip install -r "$ROOT_DIR/server/requirements.txt"
-  pip install espeakng_loader
-  deactivate
+  SERVER_VENV_PY="$ROOT_DIR/server/.venv/bin/python"
+  if ! "$SERVER_VENV_PY" - <<'PY' >/dev/null 2>&1; then
+import sys
+raise SystemExit(0)
+PY
+  then
+    echo "Server virtual environment looks broken. Recreating..."
+    (cd "$ROOT_DIR/server" && rm -rf .venv)
+    (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv .venv)
+    SERVER_VENV_PY="$ROOT_DIR/server/.venv/bin/python"
+  fi
+  "$SERVER_VENV_PY" -m pip install -r "$ROOT_DIR/server/requirements.txt"
+  "$SERVER_VENV_PY" -m pip install espeakng_loader
 
-  SERVER_CMD="$ROOT_DIR/server/.venv/bin/python bot.py"
+  SERVER_CMD="$SERVER_VENV_PY bot.py"
 fi
 
 TTS_VENV="$ROOT_DIR/server/.venv-qwen"
@@ -69,9 +78,20 @@ if [[ ! -d "$TTS_VENV" ]]; then
   (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
 fi
 echo "Installing TTS worker dependencies..."
-"$TTS_VENV/bin/pip" install --upgrade pip
-"$TTS_VENV/bin/pip" install --pre -U "mlx-audio>=0.3.1"
-"$TTS_VENV/bin/pip" install -U espeakng_loader
+TTS_VENV_PY="$TTS_VENV/bin/python"
+if ! "$TTS_VENV_PY" - <<'PY' >/dev/null 2>&1; then
+import sys
+raise SystemExit(0)
+PY
+then
+  echo "TTS virtual environment looks broken. Recreating..."
+  (cd "$ROOT_DIR/server" && rm -rf .venv-qwen)
+  (cd "$ROOT_DIR/server" && "$PYTHON_BIN" -m venv ".venv-qwen")
+  TTS_VENV_PY="$TTS_VENV/bin/python"
+fi
+"$TTS_VENV_PY" -m pip install --upgrade pip
+"$TTS_VENV_PY" -m pip install --pre -U "mlx-audio>=0.3.1"
+"$TTS_VENV_PY" -m pip install -U espeakng_loader
 export TTS_WORKER_PYTHON="$TTS_VENV/bin/python"
 export QWEN_TTS_PYTHON="$TTS_VENV/bin/python"
 
