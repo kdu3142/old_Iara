@@ -62,6 +62,34 @@ try:
 except Exception:
     pass
 
+# Compatibility shim for KokoroPipeline using EspeakG2P that returns >2 values.
+try:
+    from mlx_audio.tts.models.kokoro import pipeline as _kokoro_pipeline
+    from collections.abc import Sequence as _Seq
+
+    if not hasattr(_kokoro_pipeline.KokoroPipeline, "_iara_patched"):
+        _orig_init = _kokoro_pipeline.KokoroPipeline.__init__
+
+        def _init_compat(self, *args, **kwargs):
+            _orig_init(self, *args, **kwargs)
+            g2p = getattr(self, "g2p", None)
+            if g2p is None:
+                return
+
+            def _g2p_compat(text, *a, **k):
+                result = g2p(text, *a, **k)
+                if isinstance(result, _Seq) and not isinstance(result, (str, bytes)):
+                    if len(result) > 2:
+                        return tuple(result[:2])
+                return result
+
+            self.g2p = _g2p_compat
+
+        _kokoro_pipeline.KokoroPipeline.__init__ = _init_compat
+        _kokoro_pipeline.KokoroPipeline._iara_patched = True
+except Exception:
+    pass
+
 # Compatibility shim for phonemizer versions that don't expose EspeakWrapper.set_data_path.
 try:
     from phonemizer.backend.espeak.wrapper import EspeakWrapper
