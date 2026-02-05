@@ -917,8 +917,14 @@ async def run_bot(webrtc_connection):
         observers=[FilteredRTVIObserver(rtvi, llm_sources={assistant_sentence_aggregator})],
     )
 
+    initial_prompt_sent = False
+
     @rtvi.event_handler("on_client_ready")
     async def on_client_ready(rtvi):
+        nonlocal initial_prompt_sent
+        if initial_prompt_sent:
+            return
+        initial_prompt_sent = True
         await rtvi.set_bot_ready()
         # Kick off the conversation
         await task.queue_frames([context_aggregator.user().get_context_frame()])

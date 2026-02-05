@@ -44,6 +44,7 @@ except Exception:
 
 # Compatibility shim for misaki/espeak API changes (KokoroPipeline expects 2 values).
 try:
+    from collections.abc import Sequence
     from misaki import espeak as _misaki_espeak
 
     if not hasattr(_misaki_espeak.EspeakG2P, "_iara_patched"):
@@ -51,8 +52,9 @@ try:
 
         def _call_compat(self, *args, **kwargs):
             result = _orig_call(self, *args, **kwargs)
-            if isinstance(result, tuple) and len(result) > 2:
-                return result[:2]
+            if isinstance(result, Sequence) and not isinstance(result, (str, bytes)):
+                if len(result) > 2:
+                    return tuple(result[:2])
             return result
 
         _misaki_espeak.EspeakG2P.__call__ = _call_compat
