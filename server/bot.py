@@ -10,6 +10,26 @@ from typing import Dict, Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "pipecat", "src"))
 import sitecustomize  # noqa: F401
 
+# Transformers compatibility shim for smart-turn v2 on older versions.
+try:
+    from transformers.modeling_utils import PreTrainedModel
+
+    if not hasattr(PreTrainedModel, "all_tied_weights_keys"):
+        @property
+        def all_tied_weights_keys(self):
+            keys = getattr(self, "_tied_weights_keys", None)
+            if keys is None:
+                return {}
+            if isinstance(keys, dict):
+                return keys
+            if isinstance(keys, (list, tuple, set)):
+                return {k: None for k in keys}
+            return {}
+
+        PreTrainedModel.all_tied_weights_keys = all_tied_weights_keys
+except Exception:
+    pass
+
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import BackgroundTasks, FastAPI
