@@ -46,6 +46,10 @@ export default function Home() {
     "idle"
   );
   const [warmupError, setWarmupError] = useState<string | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<
+    "idle" | "saving" | "loading" | "ready" | "error"
+  >("idle");
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const warmupPromiseRef = useRef<Promise<boolean> | null>(null);
   const allowConnectRef = useRef(false);
 
@@ -140,8 +144,60 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const win = window as typeof window & {
+      __IARA_ALLOW_SINK_ID?: boolean;
+    };
+    const mediaProto = (HTMLMediaElement?.prototype as HTMLMediaElement & {
+      setSinkId?: (deviceId?: string) => Promise<void>;
+      __iaraSetSinkIdOriginal?: (deviceId?: string) => Promise<void>;
+      __iaraSetSinkIdPatched?: boolean;
+    }) || null;
+    if (mediaProto?.setSinkId && !mediaProto.__iaraSetSinkIdPatched) {
+      const original = mediaProto.setSinkId;
+      mediaProto.__iaraSetSinkIdOriginal = original;
+      mediaProto.setSinkId = function setSinkId(deviceId?: string) {
+        if (!win.__IARA_ALLOW_SINK_ID) {
+          return Promise.resolve();
+        }
+        return original.call(this, deviceId).catch((error: unknown) => {
+          if (error instanceof Error && error.name === "NotAllowedError") {
+            return;
+          }
+          throw error;
+        });
+      };
+      mediaProto.__iaraSetSinkIdPatched = true;
+    }
+
+    const audioProto = (window.AudioContext?.prototype as AudioContext & {
+      setSinkId?: (deviceId?: string) => Promise<void>;
+      __iaraSetSinkIdOriginal?: (deviceId?: string) => Promise<void>;
+      __iaraSetSinkIdPatched?: boolean;
+    }) || null;
+    if (audioProto?.setSinkId && !audioProto.__iaraSetSinkIdPatched) {
+      const original = audioProto.setSinkId;
+      audioProto.__iaraSetSinkIdOriginal = original;
+      audioProto.setSinkId = function setSinkId(deviceId?: string) {
+        if (!win.__IARA_ALLOW_SINK_ID) {
+          return Promise.resolve();
+        }
+        return original.call(this, deviceId).catch((error: unknown) => {
+          if (error instanceof Error && error.name === "NotAllowedError") {
+            return;
+          }
+          throw error;
+        });
+      };
+      audioProto.__iaraSetSinkIdPatched = true;
+    }
+  }, []);
+
+  useEffect(() => {
     setWarmupStatus("idle");
     setWarmupError(null);
+    setDownloadStatus("idle");
+    setDownloadError(null);
     allowConnectRef.current = false;
   }, [
     config.whisperModel,
@@ -185,6 +241,7 @@ export default function Home() {
       const label = button.textContent?.trim();
       if (label !== "Connect" && label !== "Start Chat") return;
       if (allowConnectRef.current) return;
+      (window as typeof window & { __IARA_ALLOW_SINK_ID?: boolean }).__IARA_ALLOW_SINK_ID = true;
       event.preventDefault();
       event.stopPropagation();
       void runWarmup().then((ready) => {
@@ -215,6 +272,22 @@ export default function Home() {
     return saved;
   };
 
+  const saveActivePreset = async () => {
+    const updatedPresets = configStore.presets.map((preset) =>
+      preset.id === configStore.activePresetId
+        ? {
+            ...preset,
+            values: config,
+            updatedAt: new Date().toISOString(),
+          }
+        : preset
+    );
+    return saveStore({
+      ...configStore,
+      presets: updatedPresets,
+    });
+  };
+
   const handlePresetChange = (presetId: string) => {
     const selected = configStore.presets.find((preset) => preset.id === presetId);
     if (!selected) return;
@@ -228,19 +301,7 @@ export default function Home() {
   };
 
   const handleSavePreset = () => {
-    const updatedPresets = configStore.presets.map((preset) =>
-      preset.id === configStore.activePresetId
-        ? {
-            ...preset,
-            values: config,
-            updatedAt: new Date().toISOString(),
-          }
-        : preset
-    );
-    void saveStore({
-      ...configStore,
-      presets: updatedPresets,
-    }).then(() => {
+    void saveActivePreset().then(() => {
       setConsoleKey((prev) => prev + 1);
     });
   };
@@ -272,6 +333,30 @@ export default function Home() {
   const handleResetDefaults = () => {
     const defaults = DEFAULT_CONFIG_VALUES;
     setConfig(defaults);
+  };
+
+  const handleDownloadModels = async () => {
+    setDownloadStatus("saving");
+    setDownloadError(null);
+    try {
+      await saveActivePreset();
+    } catch (error) {
+      setDownloadStatus("error");
+      setDownloadError(
+        error instanceof Error ? error.message : "Failed to save config."
+      );
+      return;
+    }
+
+    setDownloadStatus("loading");
+    const ready = await runWarmup();
+    if (ready) {
+      setDownloadStatus("ready");
+      setDownloadError(null);
+    } else {
+      setDownloadStatus("error");
+      setDownloadError(warmupError ?? "Model download failed.");
+    }
   };
 
   const consoleContent = useMemo(
@@ -407,11 +492,14 @@ export default function Home() {
                 config={config}
                 newPresetName={newPresetName}
                 isDirty={isDirty}
+                downloadStatus={downloadStatus}
+                downloadError={downloadError}
                 onPresetChange={handlePresetChange}
                 onConfigChange={setConfig}
                 onNewPresetNameChange={setNewPresetName}
                 onSavePreset={handleSavePreset}
                 onSaveAsNewPreset={handleSaveAsNewPreset}
+                onDownloadModels={handleDownloadModels}
                 onResetDefaults={handleResetDefaults}
               />
             )}

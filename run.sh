@@ -134,6 +134,7 @@ fi
 "$TTS_VENV_PY" -m pip install --upgrade pip
 "$TTS_VENV_PY" -m pip install --pre -U "mlx-audio>=0.3.1"
 "$TTS_VENV_PY" -m pip install -U misaki
+"$TTS_VENV_PY" -m pip install -U num2words
 "$TTS_VENV_PY" -m pip install -U espeakng_loader
 export TTS_WORKER_PYTHON="$TTS_VENV/bin/python"
 export QWEN_TTS_PYTHON="$TTS_VENV/bin/python"

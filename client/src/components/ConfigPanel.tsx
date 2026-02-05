@@ -20,11 +20,14 @@ type ConfigPanelProps = {
   config: ConfigValues;
   newPresetName: string;
   isDirty: boolean;
+  downloadStatus: "idle" | "saving" | "loading" | "ready" | "error";
+  downloadError: string | null;
   onPresetChange: (presetId: string) => void;
   onConfigChange: (config: ConfigValues) => void;
   onNewPresetNameChange: (value: string) => void;
   onSavePreset: () => void;
   onSaveAsNewPreset: () => void;
+  onDownloadModels: () => void;
   onResetDefaults: () => void;
 };
 
@@ -108,11 +111,14 @@ export default function ConfigPanel({
   config,
   newPresetName,
   isDirty,
+  downloadStatus,
+  downloadError,
   onPresetChange,
   onConfigChange,
   onNewPresetNameChange,
   onSavePreset,
   onSaveAsNewPreset,
+  onDownloadModels,
   onResetDefaults,
 }: ConfigPanelProps) {
   const activePresetLabel = activePresetName || "Preset";
@@ -154,6 +160,7 @@ export default function ConfigPanel({
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [recordingSavedPath, setRecordingSavedPath] = useState<string | null>(null);
+  const isDownloading = downloadStatus === "saving" || downloadStatus === "loading";
   const pickQwenModelForMode = (
     mode: ConfigValues["qwenTts"]["mode"],
     currentModel: string
@@ -451,6 +458,33 @@ export default function ConfigPanel({
             >
               Save {activePresetLabel}
             </button>
+            <button
+              type="button"
+              onClick={onDownloadModels}
+              disabled={isDownloading}
+              style={{
+                padding: "8px 12px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255,255,255,0.2)",
+                background: isDownloading
+                  ? "rgba(255,255,255,0.06)"
+                  : "rgba(80,180,120,0.18)",
+                color: "inherit",
+                cursor: isDownloading ? "default" : "pointer",
+              }}
+            >
+              {isDownloading ? "Downloading models..." : "Download models"}
+            </button>
+            {downloadStatus === "ready" && (
+              <div style={{ alignSelf: "center", fontSize: "12px", opacity: 0.8 }}>
+                Models are ready.
+              </div>
+            )}
+            {downloadStatus === "error" && (
+              <div style={{ alignSelf: "center", fontSize: "12px", color: "#ffb4b4" }}>
+                {downloadError ?? "Download failed. Try again."}
+              </div>
+            )}
             <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
               <input
                 type="text"

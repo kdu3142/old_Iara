@@ -8,6 +8,7 @@ from typing import Dict, Optional
 
 # Add local pipecat to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "pipecat", "src"))
+import sitecustomize  # noqa: F401
 
 import uvicorn
 from dotenv import load_dotenv
